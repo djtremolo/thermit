@@ -10,19 +10,21 @@ static thermit_t tInst;
 int main(int argc, char* argv[])
 {
     thermit_t *inst = &tInst;
+    uint8_t myBuf[128];
 
-    harhar();
-
-    devopen(inst, 1);   /*first port*/
+    ioDeviceOpen(inst, 1);   /*first port*/
 
     for(int i=0;i<100;i++)
     {
-        printf("jello\r\n");
 
+        if(ioDeviceRead(inst, myBuf, 128) > 0)
+        {
+            printf("received\r\n");
+        } 
     }
 
 
-    devclose(inst);
+    ioDeviceClose(inst);
 
     return 0;
 }

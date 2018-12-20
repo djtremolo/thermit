@@ -6,7 +6,7 @@
 
 #include "ioAPI.h"
 
-int16_t devopen(thermit_t *inst, uint8_t portIdx)
+int16_t ioDeviceOpen(thermit_t *inst, uint8_t portIdx)
 {
     int ret = -1;
 
@@ -30,7 +30,7 @@ int16_t devopen(thermit_t *inst, uint8_t portIdx)
     return ret;
 }
 
-int16_t devclose(thermit_t *inst)
+int16_t ioDeviceClose(thermit_t *inst)
 {
     int ret = -1;
 
@@ -56,7 +56,7 @@ int16_t devclose(thermit_t *inst)
     -1   - fatal error, such as loss of connection, or no buffer to read into.
 */
 
-int16_t readpkt(thermit_t *inst, uint8_t *buf, int16_t maxLen) 
+int16_t ioDeviceRead(thermit_t *inst, uint8_t *buf, int16_t maxLen) 
 {
     int16_t ret = -1;
 
@@ -82,7 +82,7 @@ int16_t readpkt(thermit_t *inst, uint8_t *buf, int16_t maxLen)
     0 on success
     -1 on failure
 */
-int16_t tx_data(thermit_t *inst, uint8_t *buf, int16_t len) 
+int16_t ioDeviceWrite(thermit_t *inst, uint8_t *buf, int16_t len) 
 {
     int x;
     int max;
@@ -109,7 +109,7 @@ int16_t tx_data(thermit_t *inst, uint8_t *buf, int16_t len)
     0 on success.
     -1 on failure    
 */
-int16_t openfile(thermit_t *inst, uint8_t *fileName, int mode) 
+int16_t ioFileOpen(thermit_t *inst, uint8_t *fileName, int mode) 
 {
     int16_t ret = -1;
 
@@ -136,7 +136,7 @@ int16_t openfile(thermit_t *inst, uint8_t *fileName, int mode)
     return ret;
 }
 
-int16_t readfile(thermit_t *inst, uint16_t offset, uint8_t *buf, int16_t len) 
+int16_t ioFileRead(thermit_t *inst, uint16_t offset, uint8_t *buf, int16_t len) 
 {
     int16_t ret = -1;
 
@@ -154,7 +154,7 @@ int16_t readfile(thermit_t *inst, uint16_t offset, uint8_t *buf, int16_t len)
     return ret;
 }
 
-int16_t writefile(thermit_t *inst, uint16_t offset, uint8_t *buf, int16_t len) 
+int16_t ioFileWrite(thermit_t *inst, uint16_t offset, uint8_t *buf, int16_t len) 
 {
     int16_t ret = -1;
 
@@ -173,7 +173,7 @@ int16_t writefile(thermit_t *inst, uint16_t offset, uint8_t *buf, int16_t len)
 }
 
 
-int16_t closefile(thermit_t *inst, bool in) 
+int16_t ioFileClose(thermit_t *inst, bool in) 
 {
     int ret = -1;
     if(in)

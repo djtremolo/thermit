@@ -1,9 +1,7 @@
 #ifndef __THERMIT_H__
 #define __THERMIT_H__
+
 #include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 
 #if 1
 #include <stdint.h>
