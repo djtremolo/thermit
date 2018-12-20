@@ -1,6 +1,8 @@
-#include "thermit.h"
-#include "ioAPI.h"
 #include "stdio.h"
+#include "thermit.h"
+
+#include "ioAPI.h"
+
 
 int main(int argc, char* argv[]);
 
