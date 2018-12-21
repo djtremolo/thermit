@@ -94,7 +94,7 @@ int16_t ioDeviceOpen(thermit_t *inst, uint8_t portIdx)
         int fd = open (portName, O_RDWR | O_NOCTTY | O_SYNC);
         if (fd >= 0)
         {
-            set_interface_attribs(fd, B115200, 0);  // set speed to 115,200 bps, 8n1 (no parity)
+            set_interface_attribs(fd, B38400, 0);  // set speed to 115,200 bps, 8n1 (no parity)
             set_blocking(fd, 0);                // set no blocking
 
             ret = 0;
@@ -135,24 +135,35 @@ int16_t ioDeviceRead(thermit_t *inst, uint8_t *buf, int16_t maxLen)
 {
     int16_t ret = -1;
     uint8_t tmpByte;
+    uint8_t tmpBuf[128];
     static streamFraming_t frame;
     static bool initialized = false;
 
-    if(!initialized)
-    {
-        streamFramingInitialize(&frame);
-    }
+    if(inst && (inst->fd >= 0))
+    {    
+        if(!initialized)
+        {
+            streamFramingInitialize(&frame);
+            initialized = true;
+        }
 
-    if(read(inst->fd, &tmpByte, sizeof(tmpByte)) == 1)
-    {
+        /*the serial port should be fine*/
         ret = 0;
 
-        streamFramingFollow(&frame, tmpByte);
-
-        if(frame.isReady && (frame.len <= maxLen))
+        /*check if something is coming in and collect all received bytes until a frame end is found*/
+        while((frame.isReady == false) && (read(inst->fd, &tmpByte, sizeof(tmpByte)) == 1))
         {
-            memcpy(buf, frame.buf, frame.len);
-            ret = (int16_t)frame.len;
+            streamFramingFollow(&frame, tmpByte);
+
+            if(frame.isReady && (frame.len <= maxLen))
+            {
+                memcpy(buf, frame.buf, frame.len);
+                ret = (int16_t)frame.len;
+
+                streamFramingInitialize(&frame);
+
+                break;  /*done. jump out of the loop*/
+            }
         }
     }
 

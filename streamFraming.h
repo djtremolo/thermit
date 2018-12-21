@@ -16,8 +16,7 @@ typedef enum
   /*thermit*/
   MSG_STATE_HEADER,
   MSG_STATE_LEN,
-  MSG_STATE_PAYLOAD,
-  MSG_STATE_CRC,
+  MSG_STATE_PAYLOAD_AND_CRC,
 
   /*stop char for stream based connections, such as uart*/
   MSG_STATE_STOP,
@@ -27,7 +26,7 @@ typedef enum
 
 typedef struct
 {
-  uint8_t *buf;
+  uint8_t buf[128];
   uint16_t len;
 
   streamFramingState_t state;

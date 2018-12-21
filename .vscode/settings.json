@@ -2,6 +2,7 @@
     "files.associations": {
         "thermit.h": "c",
         "ioapi.h": "c",
-        "streamframing.h": "c"
+        "streamframing.h": "c",
+        "stdbool.h": "c"
     }
 }
