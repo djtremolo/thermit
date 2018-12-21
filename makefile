@@ -5,7 +5,7 @@
 #  All Rights Reserved.  See kermit.c for license.
 
 #OBJS= main.o kermit.o ioLinux.o
-OBJS= main.o ioLinux.o
+OBJS= main.o crc.o streamFraming.o ioLinux.o
 
 EK = makewhat
 ALL = $(EK)
@@ -20,8 +20,10 @@ ek: $(OBJS)
 main.o: main.c thermit.h ioAPI.h
 
 #kermit.o: kermit.c cdefs.h debug.h kermit.h
+streamFraming.o: streamFraming.c streamFraming.h
+crc.o: crc.c crc.h
 
-ioLinux.o: ioLinux.c thermit.h ioAPI.h
+ioLinux.o: ioLinux.c thermit.h ioAPI.h streamFraming.h
 
 #Targets
 
@@ -31,7 +33,7 @@ cc:
 
 #Build with gcc.
 gcc:
-	@UNAME=`uname` ; make "CC=gcc" "CC2=gcc" "CFLAGS=-D$$UNAME -O0 -ggdb" ek
+	@UNAME=`uname` ; make "CC=gcc" "CC2=gcc" "CFLAGS=-D$$UNAME -O0 -ggdb -Wl,-Map,out.map" ek
 
 #Ditto but no debugging.
 gccnd:
