@@ -28,9 +28,16 @@ int main(int argc, char* argv[])
     {
         while(1)
         {
-            if(ioDeviceRead(inst, myBuf, 128) > 0)
+            int16_t recLen = ioDeviceRead(inst, myBuf, 128);
+            if(recLen > 0)
             {
-                printf("received\r\n");
+                printf("received:");
+                for(i=0; i<recLen; i++)
+                {
+                    printf(" %02X", myBuf[i]);
+                }
+                printf("\r\n");
+
                 //break;
             } 
         }
