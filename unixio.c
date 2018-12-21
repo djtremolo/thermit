@@ -5,15 +5,14 @@
 #include <unistd.h>
 
 #include "ioAPI.h"
+#include "thermit.h"
+#include <stdbool.h>
 
 
-#include <errno.h>
-#include <fcntl.h> 
-#include <string.h>
-#include <termios.h>
-#include <unistd.h>
 
+#if 1
 
+#define error_message printf
 /*
 the set_interface_attribs and set_blocking functions are copied from:
 https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
@@ -50,7 +49,7 @@ set_interface_attribs (int fd, int speed, int parity)
         tty.c_cflag &= ~(PARENB | PARODD);      // shut off parity
         tty.c_cflag |= parity;
         tty.c_cflag &= ~CSTOPB;
-        tty.c_cflag &= ~CRTSCTS;
+        //tty.c_cflag &= ~CRTSCTS;
 
         if (tcsetattr (fd, TCSANOW, &tty) != 0)
         {
@@ -77,7 +76,7 @@ set_blocking (int fd, int should_block)
         if (tcsetattr (fd, TCSANOW, &tty) != 0)
                 error_message ("error %d setting term attributes", errno);
 }
-
+#endif
 
 
 
