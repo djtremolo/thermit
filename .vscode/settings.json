@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "thermit.h": "c"
+        "thermit.h": "c",
+        "ioapi.h": "c"
     }
 }

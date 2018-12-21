@@ -4,8 +4,8 @@
 #  Trustees of Columbia University in the City of New York.
 #  All Rights Reserved.  See kermit.c for license.
 
-#OBJS= main.o kermit.o unixio.o
-OBJS= main.o unixio.o
+#OBJS= main.o kermit.o ioLinux.o
+OBJS= main.o ioLinux.o
 
 EK = makewhat
 ALL = $(EK)
@@ -21,7 +21,7 @@ main.o: main.c thermit.h ioAPI.h
 
 #kermit.o: kermit.c cdefs.h debug.h kermit.h
 
-unixio.o: unixio.c thermit.h ioAPI.h
+ioLinux.o: ioLinux.c thermit.h ioAPI.h
 
 #Targets
 
