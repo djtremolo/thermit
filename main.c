@@ -13,10 +13,11 @@ int main(int argc, char* argv[])
 {
     thermit_t *inst = &tInst;
     uint8_t myBuf[128];
+    int i;
 
     ioDeviceOpen(inst, 1);   /*first port*/
 
-    for(int i=0;i<100;i++)
+    for(i=0;i<100;i++)
     {
 
         if(ioDeviceRead(inst, myBuf, 128) > 0)
