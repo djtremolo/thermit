@@ -2,7 +2,7 @@
 #define __IOAPI_H__
 #include "thermit.h"
 
-int16_t ioDeviceOpen(thermit_t *inst, uint8_t portIdx);
+int16_t ioDeviceOpen(thermit_t *inst, uint8_t *portName);
 int16_t ioDeviceClose(thermit_t *inst);
 int16_t ioDeviceRead(thermit_t *inst, uint8_t *buf, int16_t maxLen); 
 int16_t ioDeviceWrite(thermit_t *inst, uint8_t *buf, int16_t len); 

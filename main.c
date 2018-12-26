@@ -21,7 +21,7 @@ int main(int argc, char* argv[])
         role = argv[1][0] - '0';
     }
 
-    ioDeviceOpen(inst, role==0?1:0);
+    ioDeviceOpen(inst, role==0?"/dev/tnt1":"/dev/tnt0");
 
 
     if(role == 0)

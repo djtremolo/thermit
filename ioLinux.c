@@ -81,16 +81,12 @@ set_blocking (int fd, int should_block)
 
 
 
-int16_t ioDeviceOpen(thermit_t *inst, uint8_t portIdx)
+int16_t ioDeviceOpen(thermit_t *inst, uint8_t *portName)
 {
     int ret = -1;
 
-    if(portIdx < 8)
+    if(portName != NULL)
     {
-        uint8_t portName[10];
-        
-        sprintf(portName, "/dev/tnt%d", portIdx);
-
         int fd = open (portName, O_RDWR | O_NOCTTY | O_SYNC);
         if (fd >= 0)
         {
