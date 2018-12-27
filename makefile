@@ -5,7 +5,7 @@
 #  All Rights Reserved.  See kermit.c for license.
 
 #OBJS= main.o kermit.o ioLinux.o
-OBJS= main.o crc.o streamFraming.o ioLinux.o
+OBJS= main.o thermit.o crc.o streamFraming.o ioLinux.o
 
 EK = makewhat
 ALL = $(EK)
@@ -19,7 +19,7 @@ ek: $(OBJS)
 
 main.o: main.c thermit.h ioAPI.h
 
-#kermit.o: kermit.c cdefs.h debug.h kermit.h
+thermit.o: thermit.c thermit.h
 streamFraming.o: streamFraming.c streamFraming.h
 crc.o: crc.c crc.h
 
