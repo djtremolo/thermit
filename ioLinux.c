@@ -258,16 +258,21 @@ int ioDeviceRead(thermitIoSlot_t slot, uint8_t *buf, int16_t maxLen)
   static streamFraming_t frameStorage[IOLINUX_DEVICES_MAX];
   static bool initialized = false;
 
+  /*first call to ioDeviceRead initializes the frames for each instance*/
+  if (!initialized)
+  {
+    int i;
+    for(i=0; i<IOLINUX_DEVICES_MAX; i++)
+    {
+      streamFramingInitialize(&frameStorage[i]);
+    }
+    initialized = true;
+  }
+
   if (deviceSlotIsValid(slot))
   {
     int fd = communicationDevices[slot].handle;
     streamFraming_t *frame = &(frameStorage[slot]);
-
-    if (!initialized)
-    {
-      streamFramingInitialize(frame);
-      initialized = true;
-    }
 
     /*the serial port should be fine*/
     ret = 0;

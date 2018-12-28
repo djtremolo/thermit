@@ -38,6 +38,14 @@ typedef struct
   thermitIoSlot_t inFile;
   thermitIoSlot_t outFile;
 
+  /*buffering. This buffer will be used for both incoming and outgoing messages*/
+  uint8_t mBuf[THERMIT_MSG_SIZE_MAX];
+  int16_t mLen;
+
+//
+uint8_t myID;
+
+
   thermitParameters_t parameters;
   thermitDiagnostics_t diagnostics;
 } thermitPrv_t;
@@ -124,6 +132,11 @@ thermit_t* thermitNew(uint8_t *linkName)
     {
       p->m = &mTable;
       p->comLink = ioDeviceOpen(linkName, 0);
+
+//POIS
+      p->myID = (linkName[8]=='0'?0xDD:0xEE);   //host says EE, listening one says DD
+//POIS
+
       DEBUG_PRINT("created instance using '%s'.\r\n", linkName);
 
       prv = p;  /*return this instance as it was successfully created*/
@@ -154,11 +167,74 @@ void thermitDelete(thermit_t *inst)
   else
   {
     DEBUG_PRINT("deletion FAILED\r\n");
-  }
-  
+  }  
 }
 
+#if THERMIT_DEBUG
+static void debugDumpFrame(uint8_t *buf, uint8_t *prefix)
+{
+  int i;
+  int pLen = (int)buf[5];
 
+  if(prefix)
+  {
+    DEBUG_PRINT("%s ", prefix);
+  }
+
+  DEBUG_PRINT("FC:%02X RFId:%02X Feedback:%02X SFId:%02X Chunk:%02X DataLen:%02X(%d) [", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[5]);
+  
+  for(i = 0; i < pLen; i++)
+  {
+    DEBUG_PRINT("%02X%s", buf[6+i], (i==(pLen-1)?"":" "));
+  }
+
+  DEBUG_PRINT("] CRC:%04X\r\n", (((uint16_t)buf[6+pLen])<<8)|((uint16_t)buf[6+pLen+1]));
+}
+#else
+static void debugDumpFrame(uint8_t *buf, uint8_t *prefix)
+{
+  (void)buf;
+  (void)len;
+  (void)prefix;
+}
+#endif
+
+
+static int16_t processFrame(thermitPrv_t *prv)
+{
+  int16_t ret = -1;
+
+  if(prv)
+  {
+    ret = 0;  /*at least, incoming parameter is valid*/
+
+    if(prv->mLen > 0)
+    {
+      /*message was received*/
+      debugDumpFrame(prv->mBuf, "Processing frame\r\n->");
+
+      /*prepare outgoing message*/
+      prv->mLen = 0;
+
+      prv->mBuf[prv->mLen++] = prv->myID;
+      prv->mBuf[prv->mLen++] = 0x02;
+      prv->mBuf[prv->mLen++] = 0x03;
+      prv->mBuf[prv->mLen++] = 0x04;
+      prv->mBuf[prv->mLen++] = 0x05;
+      prv->mBuf[prv->mLen++] = 0x02;
+      prv->mBuf[prv->mLen++] = 0xAA;
+      prv->mBuf[prv->mLen++] = 0xBB;
+      prv->mBuf[prv->mLen++] = 0xCD;
+      prv->mBuf[prv->mLen++] = 0xEF;
+
+      debugDumpFrame(prv->mBuf, "Sending frame\r\n<-");
+
+      ret = prv->mLen;
+    }
+  }
+
+  return ret;
+}
 
 
 
@@ -166,11 +242,27 @@ static thermitState_t mStep(thermit_t *inst)
 {
   thermitPrv_t *prv = (thermitPrv_t*)inst;
   thermitState_t ret;
+  int16_t processReturn;
 
   if(prv)
   {
     DEBUG_PRINT("thermit->step()\r\n");
 
+    /*check communication device for incoming messages*/
+    prv->mLen = ioDeviceRead(prv->comLink, prv->mBuf, THERMIT_MSG_SIZE_MAX);
+
+    /*call processing function. It will overwrite mBuf/mLen with a response message if
+    an outgoing message is needed.*/
+    processReturn = processFrame(prv);
+
+    /*if a response was prepared, send outgoing message*/
+    if(processReturn > 0)
+    {
+      ioDeviceWrite(prv->comLink, prv->mBuf, prv->mLen);
+    }
+
+    /*if nothing to send, send keepalive periodically*/
+    //TBD
   }
 
   return ret;

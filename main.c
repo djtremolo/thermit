@@ -1,33 +1,54 @@
 #include "stdio.h"
 #include "thermit.h"
+#include <time.h>
+#include <unistd.h>
 
+
+uint32_t millis()
+{
+    uint32_t ret = 0;
+    struct timespec tp;
+
+    if(clock_gettime(CLOCK_MONOTONIC, &tp) == 0)
+    {
+        ret = (tp.tv_nsec / 1000000) + (tp.tv_sec * 1000);
+    }
+    return ret;
+}
 
 
 int main(int argc, char* argv[]);
 
-static thermit_t tInst;
-
-
 int main(int argc, char* argv[])
 {
-    thermit_t *inst = &tInst;
     uint8_t myBuf[128];
-    int i=0;
-    bool masterRole = false;
+    bool hostRole = false;
     uint8_t *linkName = NULL;
 
     if(argc == 3)
     {
         linkName = argv[1];
-        masterRole = (argv[2][0] == 'm' ? true : false);
+        hostRole = (argv[2][0] == 'h' ? true : false);
+    }
+    else
+    {
+        DEBUG_PRINT("syntax: %s devname mode, where:\r\ndevname = '/dev/xyz0'\r\nmode = 'h' (host)\r\nmode = 'l' (listening)\r\n", argv[0]);
     }
 
     if(linkName)
     {
         thermit_t *t = thermitNew(linkName);
+        volatile bool end = false;
+
+        
 
 
-        DEBUG_PRINT("instance %p running in %s role.\r\n", t, masterRole?"master":"slave");
+        DEBUG_PRINT("instance %p running in %s role.\r\n", t, hostRole?"host":"listening");
+        while(!end)
+        {
+            t->m->step(t);
+            sleep(1);
+        }
 
 
         thermitDelete(t);

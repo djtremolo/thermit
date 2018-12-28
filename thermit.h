@@ -16,6 +16,18 @@
 
 #define THERMIT_FILENAME_MAX    32
 
+
+
+#define L2_MTU                  128
+#define L2_HEADER_SIZE          8
+#define L2_FOOTER_SIZE          0
+#define L2_PAYLOAD_SIZE         (L2_MTU-L2_HEADER_SIZE-L2_FOOTER_SIZE)
+
+
+
+#define THERMIT_HEADER_LENGTH   6
+#define THERMIT_MSG_SIZE_MAX    (L2_PAYLOAD_SIZE-THERMIT_HEADER_LENGTH)
+
 typedef struct
 {			
     uint8_t name[THERMIT_FILENAME_MAX]; 
