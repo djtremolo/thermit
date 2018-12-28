@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/thermit",
-            "args": [],
+            "args": ["/dev/tnt0", "s"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

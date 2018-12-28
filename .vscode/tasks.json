@@ -7,6 +7,7 @@
             "label": "make",
             "type": "shell",
             "command": "clear && make",
+            "problemMatcher":"$gcc",
             "group": {
                 "kind": "build",
                 "isDefault": true

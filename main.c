@@ -1,7 +1,6 @@
 #include "stdio.h"
 #include "thermit.h"
 
-#include "ioAPI.h"
 
 
 int main(int argc, char* argv[]);
@@ -14,44 +13,25 @@ int main(int argc, char* argv[])
     thermit_t *inst = &tInst;
     uint8_t myBuf[128];
     int i=0;
-    char role = 0;
+    bool masterRole = false;
+    uint8_t *linkName = NULL;
 
-    if(argc > 1)
+    if(argc == 3)
     {
-        role = argv[1][0] - '0';
+        linkName = argv[1];
+        masterRole = (argv[2][0] == 'm' ? true : false);
     }
 
-    ioDeviceOpen(inst, role==0?"/dev/tnt1":"/dev/tnt0");
-
-
-    if(role == 0)
+    if(linkName)
     {
-        while(1)
-        {
-            int16_t recLen = ioDeviceRead(inst, myBuf, 128);
-            if(recLen > 0)
-            {
-                printf("received:");
-                for(i=0; i<recLen; i++)
-                {
-                    printf(" %02X", myBuf[i]);
-                }
-                printf("\r\n");
+        thermit_t *t = thermitNew(linkName);
 
-                //break;
-            } 
-        }
+
+        DEBUG_PRINT("instance %p running in %s role.\r\n", t, masterRole?"master":"slave");
+
+
+        thermitDelete(t);
     }
-    else
-    {
-        getchar();
-        printf("sending\r\n");
-        uint8_t tmsg[10] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x02, 0xAA, 0xBB, 0x00, 0x00};
-        ioDeviceWrite(inst, tmsg, sizeof(tmsg));
-    }
-
-
-    ioDeviceClose(inst);
 
     return 0;
 }

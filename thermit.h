@@ -2,7 +2,16 @@
 #define __THERMIT_H__
 #include <stdint.h>
 #include <stdbool.h>
+#include "ioAPI.h"
+
+#define THERMIT_DEBUG   true
+
+#if THERMIT_DEBUG
 #include <stdio.h>
+#define DEBUG_PRINT(...) printf(__VA_ARGS__);
+#else
+#define DEBUG_PRINT(...)
+#endif
 
 
 #define THERMIT_FILENAME_MAX    32
@@ -24,7 +33,7 @@ typedef enum
 
 typedef struct
 {
-    struct thermitMethodTable_t *m;
+    const struct thermitMethodTable_t *m;
 } thermit_t;
 
 
@@ -43,20 +52,20 @@ struct thermitMethodTable_t
     thermitState_t (*step)(thermit_t *inst);
     void (*progress)(thermit_t *inst, thermitProgress_t *progress);
     int16_t (*feed)(thermit_t *inst, uint8_t *rxBuf, int16_t rxLen);
-    int16_t (*reset)(thermit_t *inst);
+    int (*reset)(thermit_t *inst);
 
-    int16_t (*setDeviceOpenCb)(thermit_t *inst, cbDeviceOpen_t cb);
-    int16_t (*setDeviceCloseCb)(thermit_t *inst, cbDeviceClose_t cb);
-    int16_t (*setDeviceReadCb)(thermit_t *inst, cbDeviceRead_t cb);
-    int16_t (*setDeviceWriteCb)(thermit_t *inst, cbDeviceWrite_t cb);
-    int16_t (*setFileOpenCb)(thermit_t *inst, cbFileOpen_t cb);
-    int16_t (*setFileCloseCb)(thermit_t *inst, cbFileClose_t cb);
-    int16_t (*setFileReadCb)(thermit_t *inst, cbFileRead_t cb);
-    int16_t (*setFileWriteCb)(thermit_t *inst, cbFileWrite_t cb);
+    int (*setDeviceOpenCb)(thermit_t *inst, cbDeviceOpen_t cb);
+    int (*setDeviceCloseCb)(thermit_t *inst, cbDeviceClose_t cb);
+    int (*setDeviceReadCb)(thermit_t *inst, cbDeviceRead_t cb);
+    int (*setDeviceWriteCb)(thermit_t *inst, cbDeviceWrite_t cb);
+    int (*setFileOpenCb)(thermit_t *inst, cbFileOpen_t cb);
+    int (*setFileCloseCb)(thermit_t *inst, cbFileClose_t cb);
+    int (*setFileReadCb)(thermit_t *inst, cbFileRead_t cb);
+    int (*setFileWriteCb)(thermit_t *inst, cbFileWrite_t cb);
 } thermitMethodTable_t;
 
 
-thermit_t* thermitNew(uint8_t *linkName, uint8_t nameLen);
+thermit_t* thermitNew(uint8_t *linkName);
 void thermitDelete(thermit_t *inst);
 
 
