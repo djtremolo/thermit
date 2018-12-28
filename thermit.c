@@ -42,9 +42,7 @@ typedef struct
   uint8_t mBuf[THERMIT_MSG_SIZE_MAX];
   int16_t mLen;
 
-//
-uint8_t myID;
-
+  bool isHost;
 
   thermitParameters_t parameters;
   thermitDiagnostics_t diagnostics;
@@ -118,7 +116,7 @@ static void releaseInstance(thermitPrv_t* prv)
 }
 
 
-thermit_t* thermitNew(uint8_t *linkName)
+thermit_t* thermitNew(uint8_t *linkName, bool isHost)
 {
   thermitPrv_t *prv = NULL;
 
@@ -132,12 +130,9 @@ thermit_t* thermitNew(uint8_t *linkName)
     {
       p->m = &mTable;
       p->comLink = ioDeviceOpen(linkName, 0);
+      p->isHost = isHost;
 
-//POIS
-      p->myID = (linkName[8]=='0'?0xDD:0xEE);   //host says EE, listening one says DD
-//POIS
-
-      DEBUG_PRINT("created instance using '%s'.\r\n", linkName);
+      DEBUG_PRINT("created %s instance using '%s'.\r\n", (isHost?"host":""), linkName);
 
       prv = p;  /*return this instance as it was successfully created*/
     }
@@ -216,7 +211,7 @@ static int16_t processFrame(thermitPrv_t *prv)
       /*prepare outgoing message*/
       prv->mLen = 0;
 
-      prv->mBuf[prv->mLen++] = prv->myID;
+      prv->mBuf[prv->mLen++] = prv->isHost?0xEE:0xDD; //for recognization
       prv->mBuf[prv->mLen++] = 0x02;
       prv->mBuf[prv->mLen++] = 0x03;
       prv->mBuf[prv->mLen++] = 0x04;

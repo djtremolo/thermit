@@ -37,7 +37,7 @@ int main(int argc, char* argv[])
 
     if(linkName)
     {
-        thermit_t *t = thermitNew(linkName);
+        thermit_t *t = thermitNew(linkName, hostRole);
         volatile bool end = false;
 
         

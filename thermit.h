@@ -77,7 +77,7 @@ struct thermitMethodTable_t
 } thermitMethodTable_t;
 
 
-thermit_t* thermitNew(uint8_t *linkName);
+thermit_t* thermitNew(uint8_t *linkName, bool isHost);
 void thermitDelete(thermit_t *inst);
 
 
