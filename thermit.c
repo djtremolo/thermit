@@ -744,7 +744,7 @@ static int masterTx_NNC(thermitPrv_t *prv)
   {
   case THERMIT_RUNNING:
     DEBUG_PRINT("masterTx: THERMIT_RUNNING\r\n");
-    ret = handleStateRunning_NNC(prv);
+    ret = 0;//handleStateRunning_NNC(prv);
     break;
 
   case THERMIT_SYNC_M_SENDING_PROPOSAL:
@@ -801,7 +801,7 @@ static int slaveTx_NNC(thermitPrv_t *prv)
   {
   case THERMIT_RUNNING:
     DEBUG_PRINT("slaveTx: THERMIT_RUNNING\r\n");
-    ret = handleStateRunning_NNC(prv);
+    ret = 0;//handleStateRunning_NNC(prv);
     break;
 
   case THERMIT_SYNC_S_WAITING_FOR_PROPOSAL:
