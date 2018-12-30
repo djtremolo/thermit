@@ -27,7 +27,7 @@ void streamFramingFollow(streamFraming_t *frame, uint8_t inByte)
 {
   bool error = true;
 
-  printf("rec: %02X\r\n", inByte);
+  //printf("rec: %02X\r\n", inByte);
 
 
   switch (frame->state)

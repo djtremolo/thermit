@@ -13,6 +13,10 @@
 #define DEBUG_PRINT(...)
 #endif
 
+
+#define THERMIT_VERSION                     0
+
+
 #define THERMIT_FILENAME_MAX 32
 
 #define THERMIT_MASTER_MODE_SUPPORT       true
