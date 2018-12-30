@@ -15,6 +15,10 @@
 
 #define THERMIT_FILENAME_MAX 32
 
+#define THERMIT_MASTER_MODE_SUPPORT       true
+#define THERMIT_SLAVE_MODE_SUPPORT        true
+
+
 #define L2_MTU 128
 #define L2_HEADER_SIZE 8
 #define L2_FOOTER_SIZE 0
@@ -73,12 +77,14 @@ typedef struct
 
 typedef enum
 {
-  THERMIT_WAITING_FOR_CALLBACK_CONFIGURATION = 1, //cannot run before the callback functions are set
-  THERMIT_SYNC_SENDING_PROPOSAL = 2,              //master only
-  THERMIT_SYNC_WAITING_FOR_PROPOSAL = 3,          //slave only
-  THERMIT_SYNC_WAITING_FOR_RESPONSE = 4,          //master only
-  THERMIT_SYNC_WAITING_FOR_ACK = 5,               //slave only
-  THERMIT_RUNNING = 6                             //running - file sending/receiving is currently active
+  THERMIT_WAITING_FOR_CALLBACK_CONFIGURATION,   //cannot run before the callback functions are set
+  THERMIT_SYNC_M_SENDING_PROPOSAL,              //master only
+  THERMIT_SYNC_S_WAITING_FOR_PROPOSAL,          //slave only
+  THERMIT_SYNC_S_SENDING_RESPONSE,              //slave only
+  THERMIT_SYNC_M_WAITING_FOR_RESPONSE,          //master only
+  THERMIT_SYNC_M_SENDING_ACK,                   //master only
+  THERMIT_SYNC_S_WAITING_FOR_ACK,               //slave only
+  THERMIT_RUNNING                               //running - file sending/receiving is currently active
 } thermitState_t;
 
 typedef struct

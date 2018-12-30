@@ -38,20 +38,20 @@ int main(int argc, char* argv[])
     if(linkName)
     {
         thermit_t *t = thermitNew(linkName, masterRole);
-        volatile bool end = false;
 
-        
-
-
-        DEBUG_PRINT("instance %p running in %s role.\r\n", t, masterRole?"master":"slave");
-        while(!end)
+        if(t)
         {
-            t->m->step(t);
-            sleep(1);
+            volatile bool end = false;
+
+            DEBUG_PRINT("instance %p running in %s role.\r\n", t, masterRole?"master":"slave");
+            while(!end)
+            {
+                t->m->step(t);
+                sleep(1);
+            }
+
+            thermitDelete(t);
         }
-
-
-        thermitDelete(t);
     }
 
     return 0;
