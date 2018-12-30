@@ -4,5 +4,6 @@
         "ioapi.h": "c",
         "streamframing.h": "c",
         "stdbool.h": "c"
-    }
+    },
+    "C_Cpp.errorSquiggles": "Disabled"
 }

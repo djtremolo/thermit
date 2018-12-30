@@ -22,28 +22,28 @@ int main(int argc, char* argv[]);
 int main(int argc, char* argv[])
 {
     uint8_t myBuf[128];
-    bool hostRole = false;
+    bool masterRole = false;
     uint8_t *linkName = NULL;
 
     if(argc == 3)
     {
         linkName = argv[1];
-        hostRole = (argv[2][0] == 'h' ? true : false);
+        masterRole = (argv[2][0] == 'm' ? true : false);
     }
     else
     {
-        DEBUG_PRINT("syntax: %s devname mode, where:\r\ndevname = '/dev/xyz0'\r\nmode = 'h' (host)\r\nmode = 'l' (listening)\r\n", argv[0]);
+        DEBUG_PRINT("syntax: %s devname mode, where:\r\ndevname = '/dev/xyz0'\r\nmode = 'm' (master)\r\nmode = 's' (slave)\r\n", argv[0]);
     }
 
     if(linkName)
     {
-        thermit_t *t = thermitNew(linkName, hostRole);
+        thermit_t *t = thermitNew(linkName, masterRole);
         volatile bool end = false;
 
         
 
 
-        DEBUG_PRINT("instance %p running in %s role.\r\n", t, hostRole?"host":"listening");
+        DEBUG_PRINT("instance %p running in %s role.\r\n", t, masterRole?"master":"slave");
         while(!end)
         {
             t->m->step(t);

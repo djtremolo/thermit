@@ -1,5 +1,6 @@
 #ifndef __IOAPI_H__
 #define __IOAPI_H__
+#include "msgBuf.h"
 
 typedef int thermitIoSlot_t;
 typedef int thermitIoMode_t;
