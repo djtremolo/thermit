@@ -1,9 +1,10 @@
 {
     "files.associations": {
-        "thermit.h": "c",
-        "ioapi.h": "c",
-        "streamframing.h": "c",
-        "stdbool.h": "c"
+      "thermit.h": "c",
+      "ioapi.h": "c",
+      "streamframing.h": "c",
+      "stdbool.h": "c",
+      "debug.h": "c"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }

@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdbool.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -190,7 +191,7 @@ thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode)
 
   (void)mode;
 
-  DEBUG_PRINT("ioDeviceOpen()\r\n");
+  DEBUG_INFO("ioDeviceOpen()\r\n");
 
   /*call initialization for communication devices. It is safe to call it anytime. It will 
     initialize only at first call and jump out when already initialized.*/
@@ -210,7 +211,7 @@ thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode)
 
         communicationDevices[slot].handle = fd;
 
-        DEBUG_PRINT("device '%s' opened\r\n", devName);
+        DEBUG_INFO("device '%s' opened\r\n", devName);
 
         ret = slot;
       }
@@ -224,14 +225,14 @@ int ioDeviceClose(thermitIoSlot_t slot)
 {
   int ret = -1;
 
-  DEBUG_PRINT("ioDeviceClose()\r\n");
+  DEBUG_INFO("ioDeviceClose()\r\n");
 
   if (deviceSlotIsValid(slot))
   {
     close(slot);
     releaseDevice(slot);
 
-    DEBUG_PRINT("device closed\r\n");
+    DEBUG_INFO("device closed\r\n");
     ret = 0;
   }
 

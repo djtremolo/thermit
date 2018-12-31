@@ -3,21 +3,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "ioAPI.h"
-
-#define THERMIT_DEBUG true
-
-#if THERMIT_DEBUG
-#include <stdio.h>
-#define DEBUG_PRINT(...) printf(__VA_ARGS__);
-#else
-#define DEBUG_PRINT(...)
-#endif
+#include "thermitDebug.h"
 
 
-#define THERMIT_VERSION                     0
 
 
-#define THERMIT_FILENAME_MAX 32
+#define THERMIT_VERSION                   0
+
+#define THERMIT_FILENAME_MAX              32
 
 #define THERMIT_MASTER_MODE_SUPPORT       true
 #define THERMIT_SLAVE_MODE_SUPPORT        true
@@ -53,7 +46,8 @@ typedef enum
   THERMIT_FCODE_SYNC_PROPOSAL = 1, //this is the first frame sent by master. It includes the best set of parameters that the master can handle
   THERMIT_FCODE_SYNC_RESPONSE = 2, //this is the response from the slave. It includes the best compromise of parameter set that is supported by both ends.
   THERMIT_FCODE_SYNC_ACK = 3,      //master acknowledges the parameter set
-  THERMIT_FCODE_DATA_TRANSFER = 4  //data transfer frame. If file is to be sent, this frame contains one chunk. The frame can also be sent as feedback frame with empty data.
+  THERMIT_FCODE_DATA_TRANSFER = 4, //data transfer frame. If file is to be sent, this frame contains one chunk. The frame can also be sent as feedback frame with empty data.
+  THERMIT_FCODE_OUT_OF_SYNC = 0xFF //error frame. Can be sent if the incoming frame is not supported in active protocol state.
 } thermitFCode_t;
 
 typedef struct
@@ -81,14 +75,15 @@ typedef struct
 
 typedef enum
 {
+  THERMIT_FIRST_DUMMY_STATE,                    //NEVER use this. It is just for range check and keeping other states in non-zero values.
+  /*real states:*/
   THERMIT_WAITING_FOR_CALLBACK_CONFIGURATION,   //cannot run before the callback functions are set
-  THERMIT_SYNC_M_SENDING_PROPOSAL,              //master only
-  THERMIT_SYNC_S_WAITING_FOR_PROPOSAL,          //slave only
-  THERMIT_SYNC_S_SENDING_RESPONSE,              //slave only
-  THERMIT_SYNC_M_WAITING_FOR_RESPONSE,          //master only
-  THERMIT_SYNC_M_SENDING_ACK,                   //master only
-  THERMIT_SYNC_S_WAITING_FOR_ACK,               //slave only
-  THERMIT_RUNNING                               //running - file sending/receiving is currently active
+  THERMIT_SYNC_FIRST,                           //master:send proposal and receive response, slave:wait for proposal and send response
+  THERMIT_SYNC_SECOND,                          //master:send ack and switch to running, slave:wait for ack and switch to running
+  THERMIT_RUNNING,                              //running - file sending/receiving is currently active
+  THERMIT_OUT_OF_SYNC,                          //faulty state - inform other end
+  /*real states end*/
+  THERMIT_LAST_DUMMY_STATE,                    //NEVER use this. It is just for range check.
 } thermitState_t;
 
 typedef struct

@@ -32,7 +32,7 @@ int main(int argc, char* argv[])
     }
     else
     {
-        DEBUG_PRINT("syntax: %s devname mode, where:\r\ndevname = '/dev/xyz0'\r\nmode = 'm' (master)\r\nmode = 's' (slave)\r\n", argv[0]);
+        DEBUG_INFO("syntax: %s devname mode, where:\r\ndevname = '/dev/xyz0'\r\nmode = 'm' (master)\r\nmode = 's' (slave)\r\n", argv[0]);
     }
 
     if(linkName)
@@ -43,7 +43,7 @@ int main(int argc, char* argv[])
         {
             volatile bool end = false;
 
-            DEBUG_PRINT("instance %p running in %s role.\r\n", t, masterRole?"master":"slave");
+            DEBUG_INFO("instance %p running in %s role.\r\n", t, masterRole?"master":"slave");
             while(!end)
             {
                 t->m->step(t);
