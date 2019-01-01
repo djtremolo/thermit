@@ -223,24 +223,6 @@ thermit_t *thermitNew(uint8_t *linkName, bool isMaster)
 
         initializeState(p);
 
-        uint8_t cId;
-
-        progressInitialize(p, 20480);
-        (void)progressGetFirstDirty(p, &cId);
-        progressSetChunkStatus(p, 0, true);
-        progressSetChunkStatus(p, 1, true);
-        progressSetChunkStatus(p, 2, true);
-        progressSetChunkStatus(p, 3, true);
-        progressSetChunkStatus(p, 4, true);
-        progressSetChunkStatus(p, 5, true);
-        progressSetChunkStatus(p, 6, true);
-        progressSetChunkStatus(p, 7, true);
-        (void)progressGetFirstDirty(p, &cId);
-        progressSetChunkStatus(p, 8, true);
-        (void)progressGetFirstDirty(p, &cId);
-        progressSetChunkStatus(p, 17, true);
-
-
         DEBUG_INFO("created %s instance using '%s'.\r\n", (isMaster ? "master" : "slave"), linkName);
 
         prv = p; /*return this instance as it was successfully created*/
@@ -444,7 +426,6 @@ static void debugDumpProgress(thermitProgress_t *prog, uint8_t *prefix, uint8_t 
 
       while(cntr--)
       {
-
         *(ptr++) = ((((prog->chunkStatus[byteIdx] >> bitIdx) & 0x01) == 0) ? 'G' : '-');
         totalChunksToBeReported--;
         if(totalChunksToBeReported == 0)
