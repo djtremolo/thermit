@@ -73,8 +73,6 @@ static uint32_t millis(uint32_t *max)
     return ret;
 }
 
-
-
 static void initDevices()
 {
   static bool initialized = false;
@@ -166,15 +164,13 @@ static void releaseFile(thermitIoSlot_t slot)
   }
 }
 
-#if 1
-
 #define error_message printf
 /*
 the set_interface_attribs and set_blocking functions are copied from:
 https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c
 Author: https://stackoverflow.com/users/198536/wallyk
 */
-int set_interface_attribs(int fd, int speed, int parity)
+static int set_interface_attribs(int fd, int speed, int parity)
 {
   struct termios tty;
   memset(&tty, 0, sizeof tty);
@@ -214,7 +210,7 @@ int set_interface_attribs(int fd, int speed, int parity)
   return 0;
 }
 
-void set_blocking(int fd, int should_block)
+static void set_blocking(int fd, int should_block)
 {
   struct termios tty;
   memset(&tty, 0, sizeof tty);
@@ -230,7 +226,6 @@ void set_blocking(int fd, int should_block)
   if (tcsetattr(fd, TCSANOW, &tty) != 0)
     error_message("error %d setting term attributes", errno);
 }
-#endif
 
 static thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode)
 {
