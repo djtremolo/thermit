@@ -4,13 +4,43 @@
 #include <fcntl.h>
 #include <string.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
+
 
 #include "thermit.h"
 #include "streamFraming.h"
 
 #define IOLINUX_DEVICES_MAX 1
 #define IOLINUX_FILES_MAX 1
+
+
+
+static uint32_t millis(uint32_t *max);
+static thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode);
+static int ioDeviceClose(thermitIoSlot_t slot);
+static int ioDeviceRead(thermitIoSlot_t slot, uint8_t *buf, int16_t maxLen);
+static int ioDeviceWrite(thermitIoSlot_t slot, uint8_t *buf, int16_t len);
+static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode);
+static int ioFileRead(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxLen);
+static int ioFileWrite(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len);
+static int ioFileClose(thermitIoSlot_t slot);
+
+
+thermitTargetAdaptationInterface_t ioLinuxTargetIf = 
+{
+    ioDeviceOpen,/*devOpen*/ 
+    ioDeviceClose,/*devClose*/    
+    ioDeviceRead,/*devRead*/ 
+    ioDeviceWrite,/*devWrite*/    
+    ioFileOpen,/*fileOpen*/    
+    ioFileClose,/*fileClose*/   
+    ioFileRead,/*fileRead*/    
+    ioFileWrite,/*fileWrite*/   
+    millis/*sysGetMs*/    
+};
+
+
 
 typedef struct
 {
@@ -26,6 +56,24 @@ typedef struct
 
 static ioDeviceObject_t communicationDevices[IOLINUX_DEVICES_MAX];
 static ioFileObject_t storageFiles[IOLINUX_FILES_MAX];
+
+
+static uint32_t millis(uint32_t *max)
+{
+    uint32_t ret = 0;
+    struct timespec tp;
+
+    if(max)
+        *max = 0xFFFFFFFF;
+
+    if(clock_gettime(CLOCK_MONOTONIC, &tp) == 0)
+    {
+        ret = (tp.tv_nsec / 1000000) + (tp.tv_sec * 1000);
+    }
+    return ret;
+}
+
+
 
 static void initDevices()
 {
@@ -184,7 +232,7 @@ void set_blocking(int fd, int should_block)
 }
 #endif
 
-thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode)
+static thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode)
 {
   thermitIoSlot_t ret = -1;
   int slot;
@@ -221,7 +269,7 @@ thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode)
   return ret;
 }
 
-int ioDeviceClose(thermitIoSlot_t slot)
+static int ioDeviceClose(thermitIoSlot_t slot)
 {
   int ret = -1;
 
@@ -251,7 +299,7 @@ int ioDeviceClose(thermitIoSlot_t slot)
     -1   - fatal error, such as loss of connection, or no buffer to read into.
 */
 
-int ioDeviceRead(thermitIoSlot_t slot, uint8_t *buf, int16_t maxLen)
+static int ioDeviceRead(thermitIoSlot_t slot, uint8_t *buf, int16_t maxLen)
 {
   int16_t ret = -1;
   uint8_t tmpByte;
@@ -308,7 +356,7 @@ int ioDeviceRead(thermitIoSlot_t slot, uint8_t *buf, int16_t maxLen)
     0 on success
     -1 on failure
 */
-int ioDeviceWrite(thermitIoSlot_t slot, uint8_t *buf, int16_t len)
+static int ioDeviceWrite(thermitIoSlot_t slot, uint8_t *buf, int16_t len)
 {
   int ret = -1;
   uint8_t startSequence[2] = {START_CHAR, START_CHAR};
@@ -353,7 +401,7 @@ int ioDeviceWrite(thermitIoSlot_t slot, uint8_t *buf, int16_t len)
     0 on success.
     -1 on failure    
 */
-thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode)
+static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode)
 {
   thermitIoSlot_t ret = -1;
   int slot;
@@ -402,7 +450,7 @@ thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode)
   return ret;
 }
 
-int ioFileRead(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxLen)
+static int ioFileRead(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxLen)
 {
   int ret = -1;
 
@@ -422,7 +470,7 @@ int ioFileRead(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxL
   return ret;
 }
 
-int ioFileWrite(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len)
+static int ioFileWrite(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len)
 {
   int ret = -1;
 
@@ -441,7 +489,7 @@ int ioFileWrite(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len
   return ret;
 }
 
-int ioFileClose(thermitIoSlot_t slot)
+static int ioFileClose(thermitIoSlot_t slot)
 {
   int ret = -1;
 

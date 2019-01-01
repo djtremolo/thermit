@@ -52,6 +52,8 @@ typedef struct
   /*private members*/
   uint16_t reserved; /*magic value 0xA55B used for detecting reservation, all others: not initialized*/
 
+  thermitTargetAdaptationInterface_t targetIf;    //devive / file / system adaptation layer
+
   thermitState_t state;
 
   thermitIoSlot_t comLink;
@@ -109,50 +111,67 @@ static int waitForDataMessage(thermitPrv_t *prv);
 
 
 static thermitState_t mStep(thermit_t *inst);
-static int16_t mFeed(thermit_t *inst, uint8_t *rxBuf, int16_t rxLen);
 static int mReset(thermit_t *inst);
-static int mSetDeviceOpenCb(thermit_t *inst, cbDeviceOpen_t cb);
-static int mSetDeviceCloseCb(thermit_t *inst, cbDeviceClose_t cb);
-static int mSetDeviceReadCb(thermit_t *inst, cbDeviceRead_t cb);
-static int mSetDeviceWriteCb(thermit_t *inst, cbDeviceWrite_t cb);
-static int mSetFileOpenCb(thermit_t *inst, cbFileOpen_t cb);
-static int mSetFileCloseCb(thermit_t *inst, cbFileClose_t cb);
-static int mSetFileReadCb(thermit_t *inst, cbFileRead_t cb);
-static int mSetFileWriteCb(thermit_t *inst, cbFileWrite_t cb);
+
 
 static const struct thermitMethodTable_t mTable =
-    {
-        mStep,
-        mFeed,
-        mReset,
-        mSetDeviceOpenCb,
-        mSetDeviceCloseCb,
-        mSetDeviceReadCb,
-        mSetDeviceWriteCb,
-        mSetFileOpenCb,
-        mSetFileCloseCb,
-        mSetFileReadCb,
-        mSetFileWriteCb};
+{
+  mStep,
+  mReset,
+};
+
 
 #define THERMIT_RESERVED_MAGIC_VALUE 0xA55B
 
 static thermitPrv_t thermitInstances[THERMIT_INSTANCES_MAX];
 
-static thermitPrv_t *reserveInstance()
+static bool validateTargetAdaptation(thermitTargetAdaptationInterface_t *targetIf)
+{
+  if(targetIf == NULL)
+    return false;
+  if(targetIf->devOpen == NULL)
+    return false;
+  if(targetIf->devClose == NULL)
+    return false;
+  if(targetIf->devRead == NULL)
+    return false;
+  if(targetIf->devWrite == NULL)
+    return false;
+  if(targetIf->fileOpen == NULL)
+    return false;
+  if(targetIf->fileClose == NULL)
+    return false;
+  if(targetIf->fileRead == NULL)
+    return false;
+  if(targetIf->fileWrite == NULL)
+    return false;
+  if(targetIf->sysGetMs == NULL)
+    return false;
+
+  return true;
+}
+
+
+static thermitPrv_t *reserveInstance(thermitTargetAdaptationInterface_t *targetIf)
 {
   thermitPrv_t *inst = NULL;
   int i;
 
-  for (i = 0; i < THERMIT_INSTANCES_MAX; i++)
+  if(validateTargetAdaptation(targetIf))
   {
-    if (thermitInstances[i].reserved != THERMIT_RESERVED_MAGIC_VALUE)
+    for (i = 0; i < THERMIT_INSTANCES_MAX; i++)
     {
-      inst = &(thermitInstances[i]);
+      if (thermitInstances[i].reserved != THERMIT_RESERVED_MAGIC_VALUE)
+      {
+        inst = &(thermitInstances[i]);
 
-      memset(inst, 0, sizeof(thermitPrv_t));
-      thermitInstances[i].reserved = THERMIT_RESERVED_MAGIC_VALUE;
+        memset(inst, 0, sizeof(thermitPrv_t));
+        thermitInstances[i].reserved = THERMIT_RESERVED_MAGIC_VALUE;
 
-      break; /*found!*/
+        memcpy(&(inst->targetIf), targetIf, sizeof(thermitTargetAdaptationInterface_t));
+
+        break; /*found!*/
+      }
     }
   }
   return inst;
@@ -181,7 +200,7 @@ static void initializeParameters(thermitPrv_t *prv)
 }
 
 
-thermit_t *thermitNew(uint8_t *linkName, bool isMaster)
+thermit_t *thermitNew(uint8_t *linkName, bool isMaster, thermitTargetAdaptationInterface_t *targetIf)
 {
   thermitPrv_t *prv = NULL;
 
@@ -203,14 +222,14 @@ thermit_t *thermitNew(uint8_t *linkName, bool isMaster)
   }
 #endif
 
-
   if (linkName)
   {
-    thermitPrv_t *p = reserveInstance();
+    thermitPrv_t *p = reserveInstance(targetIf);
 
     if (p)
     {
-      p->comLink = ioDeviceOpen(linkName, 0);
+      thermitTargetAdaptationInterface_t *tgt = &(p->targetIf);
+      p->comLink = tgt->devOpen(linkName, 0);
 
       if(p->comLink >= 0)
       {
@@ -250,7 +269,8 @@ void thermitDelete(thermit_t *inst)
 
   if (prv)
   {
-    ioDeviceClose(prv->comLink);
+    thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
+    prv->comLink = tgt->devClose(prv->comLink);
     releaseInstance(prv);
     DEBUG_INFO("instance deleted\r\n");
   }
@@ -1034,11 +1054,12 @@ static int handleIncoming(thermitPrv_t *prv)
   if (prv)
   {
     thermitPacket_t *pkt = &(prv->packet);
+    thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
 
     ret = 1; /*return positive non-zero if parameters are valid but there's nothing to do*/
 
     /*check communication device for incoming messages*/
-    pkt->rawLen = ioDeviceRead(prv->comLink, pkt->rawBuf, THERMIT_MSG_SIZE_MAX);
+    pkt->rawLen = tgt->devRead(prv->comLink, pkt->rawBuf, THERMIT_MSG_SIZE_MAX);
 
     if (parsePacketContent(prv) == 0)
     {
@@ -1302,7 +1323,9 @@ static int handleOutgoing(thermitPrv_t *prv)
 
       if(pkt->rawLen > 0)
       {
-        ioDeviceWrite(prv->comLink, pkt->rawBuf, pkt->rawLen);
+        thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
+  
+        (void)tgt->devWrite(prv->comLink, pkt->rawBuf, pkt->rawLen);
         debugDumpFrame(pkt->rawBuf, "SEND:");
       }
     }
@@ -1330,19 +1353,6 @@ static thermitState_t mStep(thermit_t *inst)
   return ret;
 }
 
-static int16_t mFeed(thermit_t *inst, uint8_t *rxBuf, int16_t rxLen)
-{
-  thermitPrv_t *prv = (thermitPrv_t *)inst;
-  int16_t ret = -1;
-
-  if (prv)
-  {
-    DEBUG_INFO("thermit->feed()\r\n");
-  }
-
-  return ret;
-}
-
 static int mReset(thermit_t *inst)
 {
   thermitPrv_t *prv = (thermitPrv_t *)inst;
@@ -1351,110 +1361,6 @@ static int mReset(thermit_t *inst)
   if (prv)
   {
     DEBUG_INFO("thermit->reset()\r\n");
-  }
-
-  return ret;
-}
-
-static int mSetDeviceOpenCb(thermit_t *inst, cbDeviceOpen_t cb)
-{
-  thermitPrv_t *prv = (thermitPrv_t *)inst;
-  int ret = -1;
-
-  if (prv)
-  {
-    DEBUG_INFO("thermit->setDeviceOpenCb()\r\n");
-  }
-
-  return ret;
-}
-
-static int mSetDeviceCloseCb(thermit_t *inst, cbDeviceClose_t cb)
-{
-  thermitPrv_t *prv = (thermitPrv_t *)inst;
-  int ret = -1;
-
-  if (prv)
-  {
-    DEBUG_INFO("thermit->setDeviceCloseCb()\r\n");
-  }
-
-  return ret;
-}
-
-static int mSetDeviceReadCb(thermit_t *inst, cbDeviceRead_t cb)
-{
-  thermitPrv_t *prv = (thermitPrv_t *)inst;
-  int ret = -1;
-
-  if (prv)
-  {
-    DEBUG_INFO("thermit->setDeviceReadCb()\r\n");
-  }
-
-  return ret;
-}
-
-static int mSetDeviceWriteCb(thermit_t *inst, cbDeviceWrite_t cb)
-{
-  thermitPrv_t *prv = (thermitPrv_t *)inst;
-  int ret = -1;
-
-  if (prv)
-  {
-    DEBUG_INFO("thermit->setDeviceWriteCb()\r\n");
-  }
-
-  return ret;
-}
-
-static int mSetFileOpenCb(thermit_t *inst, cbFileOpen_t cb)
-{
-  thermitPrv_t *prv = (thermitPrv_t *)inst;
-  int ret = -1;
-
-  if (prv)
-  {
-    DEBUG_INFO("thermit->setFileOpenCb()\r\n");
-  }
-
-  return ret;
-}
-
-static int mSetFileCloseCb(thermit_t *inst, cbFileClose_t cb)
-{
-  thermitPrv_t *prv = (thermitPrv_t *)inst;
-  int ret = -1;
-
-  if (prv)
-  {
-    DEBUG_INFO("thermit->setFileCloseCb()\r\n");
-  }
-
-  return ret;
-}
-
-static int mSetFileReadCb(thermit_t *inst, cbFileRead_t cb)
-{
-  thermitPrv_t *prv = (thermitPrv_t *)inst;
-  int ret = -1;
-
-  if (prv)
-  {
-    DEBUG_INFO("thermit->setFileReadCb()\r\n");
-  }
-
-  return ret;
-}
-
-static int mSetFileWriteCb(thermit_t *inst, cbFileWrite_t cb)
-{
-  thermitPrv_t *prv = (thermitPrv_t *)inst;
-  int ret = -1;
-
-  if (prv)
-  {
-    DEBUG_INFO("thermit->setFileWriteCb()\r\n");
   }
 
   return ret;

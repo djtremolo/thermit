@@ -10,14 +10,14 @@ thermit: $(OBJS)
 
 #Dependencies
 
-main.o: main.c thermit.h ioAPI.h thermitDebug.h
+main.o: main.c thermit.h thermitDebug.h
 
 thermit.o: thermit.c thermit.h thermitDebug.h
 streamFraming.o: streamFraming.c streamFraming.h thermitDebug.h
 crc.o: crc.c crc.h
 msgBuf.o: msgBuf.c msgBuf.h
 
-ioLinux.o: ioLinux.c thermit.h ioAPI.h streamFraming.h thermitDebug.h
+ioLinux.o: ioLinux.c thermit.h streamFraming.h thermitDebug.h
 
 #Targets
 

@@ -2,19 +2,8 @@
 #include "thermit.h"
 #include <time.h>
 #include <unistd.h>
+#include "ioLinux.h"
 
-
-uint32_t millis()
-{
-    uint32_t ret = 0;
-    struct timespec tp;
-
-    if(clock_gettime(CLOCK_MONOTONIC, &tp) == 0)
-    {
-        ret = (tp.tv_nsec / 1000000) + (tp.tv_sec * 1000);
-    }
-    return ret;
-}
 
 
 int main(int argc, char* argv[]);
@@ -37,7 +26,7 @@ int main(int argc, char* argv[])
 
     if(linkName)
     {
-        thermit_t *t = thermitNew(linkName, masterRole);
+        thermit_t *t = thermitNew(linkName, masterRole, &ioLinuxTargetIf);
 
         if(t)
         {

@@ -2,8 +2,8 @@
 #define __THERMIT_H__
 #include <stdint.h>
 #include <stdbool.h>
-#include "ioAPI.h"
 #include "thermitDebug.h"
+#include "msgBuf.h"
 
 
 
@@ -50,6 +50,12 @@ typedef enum
   THERMIT_FCODE_OUT_OF_SYNC = 0xFF //error frame. Can be sent if the incoming frame is not supported in active protocol state.
 } thermitFCode_t;
 
+
+
+typedef int thermitIoSlot_t;
+typedef int thermitIoMode_t;
+
+
 typedef struct
 {
   /*raw data: This buffer will be used for both incoming and outgoing messages*/
@@ -84,32 +90,38 @@ typedef struct
   const struct thermitMethodTable_t *m;
 } thermit_t;
 
-typedef int16_t (*cbDeviceOpen_t)(thermit_t *inst, uint8_t *portName);
-typedef int16_t (*cbDeviceClose_t)(thermit_t *inst);
-typedef int16_t (*cbDeviceRead_t)(thermit_t *inst, uint8_t *buf, int16_t maxLen);
-typedef int16_t (*cbDeviceWrite_t)(thermit_t *inst, uint8_t *buf, int16_t len);
-typedef int16_t (*cbFileOpen_t)(thermit_t *inst, uint8_t *fileName, int mode);
-typedef int16_t (*cbFileClose_t)(thermit_t *inst, bool in);
-typedef int16_t (*cbFileRead_t)(thermit_t *inst, uint16_t offset, uint8_t *buf, int16_t len);
-typedef int16_t (*cbFileWrite_t)(thermit_t *inst, uint16_t offset, uint8_t *buf, int16_t len);
+
+typedef thermitIoSlot_t (*cbDeviceOpen_t)(uint8_t *devName, thermitIoMode_t mode);
+typedef int (*cbDeviceClose_t)(thermitIoSlot_t slot);
+typedef int (*cbDeviceRead_t)(thermitIoSlot_t slot, uint8_t *buf, int16_t maxLen);
+typedef int (*cbDeviceWrite_t)(thermitIoSlot_t slot, uint8_t *buf, int16_t len);
+typedef thermitIoSlot_t (*cbFileOpen_t)(uint8_t *fileName, thermitIoMode_t mode);
+typedef int (*cbFileClose_t)(thermitIoSlot_t slot);
+typedef int (*cbFileRead_t)(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxLen);
+typedef int (*cbFileWrite_t)(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len);
+typedef uint32_t (*cbSystemGetMilliseconds_t)(uint32_t *maxMs);
+
+typedef struct
+{
+  cbDeviceOpen_t devOpen;
+  cbDeviceClose_t devClose;
+  cbDeviceRead_t devRead;
+  cbDeviceWrite_t devWrite;
+  cbFileOpen_t fileOpen;
+  cbFileClose_t fileClose;
+  cbFileRead_t fileRead;
+  cbFileWrite_t fileWrite;
+  cbSystemGetMilliseconds_t sysGetMs;
+} thermitTargetAdaptationInterface_t;
+
 
 struct thermitMethodTable_t
 {
   thermitState_t (*step)(thermit_t *inst);
-  int16_t (*feed)(thermit_t *inst, uint8_t *rxBuf, int16_t rxLen);
   int (*reset)(thermit_t *inst);
-
-  int (*setDeviceOpenCb)(thermit_t *inst, cbDeviceOpen_t cb);
-  int (*setDeviceCloseCb)(thermit_t *inst, cbDeviceClose_t cb);
-  int (*setDeviceReadCb)(thermit_t *inst, cbDeviceRead_t cb);
-  int (*setDeviceWriteCb)(thermit_t *inst, cbDeviceWrite_t cb);
-  int (*setFileOpenCb)(thermit_t *inst, cbFileOpen_t cb);
-  int (*setFileCloseCb)(thermit_t *inst, cbFileClose_t cb);
-  int (*setFileReadCb)(thermit_t *inst, cbFileRead_t cb);
-  int (*setFileWriteCb)(thermit_t *inst, cbFileWrite_t cb);
 } thermitMethodTable_t;
 
-thermit_t *thermitNew(uint8_t *linkName, bool isMaster);
+thermit_t *thermitNew(uint8_t *linkName, bool isMaster, thermitTargetAdaptationInterface_t *targetIf);
 void thermitDelete(thermit_t *inst);
 
 #endif //__THERMIT_H__
