@@ -223,6 +223,24 @@ thermit_t *thermitNew(uint8_t *linkName, bool isMaster)
 
         initializeState(p);
 
+        uint8_t cId;
+
+        progressInitialize(p, 20480);
+        (void)progressGetFirstDirty(p, &cId);
+        progressSetChunkStatus(p, 0, true);
+        progressSetChunkStatus(p, 1, true);
+        progressSetChunkStatus(p, 2, true);
+        progressSetChunkStatus(p, 3, true);
+        progressSetChunkStatus(p, 4, true);
+        progressSetChunkStatus(p, 5, true);
+        progressSetChunkStatus(p, 6, true);
+        progressSetChunkStatus(p, 7, true);
+        (void)progressGetFirstDirty(p, &cId);
+        progressSetChunkStatus(p, 8, true);
+        (void)progressGetFirstDirty(p, &cId);
+        progressSetChunkStatus(p, 17, true);
+
+
         DEBUG_INFO("created %s instance using '%s'.\r\n", (isMaster ? "master" : "slave"), linkName);
 
         prv = p; /*return this instance as it was successfully created*/
@@ -303,7 +321,7 @@ static int progressInitialize(thermitPrv_t *prv, uint16_t fileSize)
 static int progressSetChunkStatus(thermitPrv_t *prv, uint8_t chunkNo, bool done)
 {
   int ret = -1;
-  if(prv && (chunkNo < THERMIT_CHUNK_COUNT_MAX))
+  if(prv && (chunkNo < prv->progress.numberOfChunksNeeded))
   {
     thermitProgress_t *p = &(prv->progress);
     uint8_t byteIdx = THERMIT_PROGRESS_STATUS_BYTE_INDEX(chunkNo);
@@ -328,7 +346,7 @@ static int progressSetChunkStatus(thermitPrv_t *prv, uint8_t chunkNo, bool done)
 static bool progressGetChunkIsDone(thermitPrv_t *prv, uint8_t chunkNo)
 {
   bool chunkIsDone = false;
-  if(prv && (chunkNo < THERMIT_CHUNK_COUNT_MAX))
+  if(prv && (chunkNo < prv->progress.numberOfChunksNeeded))
   {
     thermitProgress_t *p = &(prv->progress);
     uint8_t byteIdx = THERMIT_PROGRESS_STATUS_BYTE_INDEX(chunkNo);
@@ -345,31 +363,54 @@ static bool progressGetChunkIsDone(thermitPrv_t *prv, uint8_t chunkNo)
 static bool progressGetFirstDirty(thermitPrv_t *prv, uint8_t *dirtyChunk)
 {
   bool ret = false;
+
   if(prv && dirtyChunk)
   {
     thermitProgress_t *p = &(prv->progress);
-    uint8_t byteIdx;
+    uint8_t bitIdx = 0;
+    uint8_t byteIdx = 0;
+    uint8_t chunksLeft = p->numberOfChunksNeeded;
 
-    for(byteIdx = 0; byteIdx < THERMIT_PROGRESS_STATUS_LENGTH; byteIdx++)
+    while(chunksLeft--)
     {
       uint8_t walkedByte = p->chunkStatus[byteIdx];
-      if(walkedByte != 0)
+
+      if(walkedByte == 0)
       {
-        uint8_t bitIdx;
+        /*there's no point in walking through this byte as it is full zeros. Jump to next if possible.*/
+        uint8_t jumps = 8 - bitIdx;
 
-        /*dirty chunk is found at this group*/
-        for(bitIdx = 0; bitIdx < 8; bitIdx++)
+        if(chunksLeft > jumps)
         {
-          if(((walkedByte >> bitIdx) & 0x01) == 0x01)
-          {
-            /*found!*/
-            *dirtyChunk = (byteIdx * 8) + bitIdx;
+          /*we are jumping to bit0 of the next byte*/
+          bitIdx = 0;
+          byteIdx++;
+          chunksLeft -= jumps;
+        }
+        else
+        {
+          /*there's no next byte available, quit*/
+          break;
+        }
+      }
+      else
+      {
+        if(((walkedByte >> bitIdx) & 0x01) == 0x01)
+        {
+          /*found!*/
+          *dirtyChunk = (byteIdx * 8) + bitIdx;
 
-            DEBUG_INFO("first dirty chunk = %d\r\n", *dirtyChunk);
+          DEBUG_INFO("first dirty chunk = %d\r\n", *dirtyChunk);
 
-            ret = true;
-            break;  /*stop searching*/
-          }
+          ret = true;
+          break;  /*stop searching*/
+        }
+
+        /*advance to next*/
+        bitIdx++;
+        if(bitIdx == 8)
+        {
+          byteIdx++;
         }
       }
     }
