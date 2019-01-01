@@ -6,6 +6,9 @@
 
 #define THERMIT_INSTANCES_MAX 1
 
+
+#define DIVISION_ROUNDED_UP(value, divider) ((value) % (divider) == 0 ? (value) / (divider) : ((value) / (divider)) +1)
+
 typedef struct
 {
   uint32_t receivedFiles;
@@ -25,6 +28,21 @@ typedef struct
   uint16_t keepAliveMs; /*0: disable keepalive, 1..65k: idle time after which a keepalive packet is sent*/
   uint16_t burstLength; /*how many packets to be sent at one step. This is to be auto-tuned during transfer to optimize the hw link buffer usage. */
 } thermitParameters_t;
+
+
+#define THERMIT_PROGRESS_STATUS_LENGTH                DIVISION_ROUNDED_UP(THERMIT_CHUNK_COUNT_MAX, 8)   
+#define THERMIT_PROGRESS_STATUS_BYTE_INDEX(chunkNo)   ((chunkNo) / 8)
+#define THERMIT_PROGRESS_STATUS_BIT_INDEX(chunkNo)    ((chunkNo) % 8)
+typedef struct
+{
+  uint8_t chunkStatus[THERMIT_PROGRESS_STATUS_LENGTH];     /*each bit represents one chunk: 1=dirty 0=done*/
+  uint8_t firstDirtyChunk;
+  uint8_t progressPercent;
+  uint16_t progressBytesDone;
+  uint16_t oneChunkPercentScaled100;   // this value represents how many percents one chunk is of the whole file, multiplied by 100
+  uint8_t numberOfChunksNeeded;
+} thermitProgress_t;
+
 
 typedef struct
 {
@@ -48,6 +66,7 @@ typedef struct
 
   bool isMaster;
 
+  thermitProgress_t progress;
   thermitParameters_t parameters;
   thermitDiagnostics_t diagnostics;
 } thermitPrv_t;
@@ -59,6 +78,12 @@ static int findBestCommonParameterSet(thermitParameters_t *p1, thermitParameters
 static void debugDumpParameters(thermitParameters_t *par, uint8_t *prefix, uint8_t *postfix);
 static void debugDumpFrame(uint8_t *buf, uint8_t *prefix);
 static void debugDumpState(thermitState_t state, uint8_t *prefix, uint8_t *postfix);
+static void debugDumpProgress(thermitProgress_t *prog, uint8_t *prefix, uint8_t *postfix);
+
+static int progressInitialize(thermitPrv_t *prv, uint16_t fileSize);
+static int progressSetChunkStatus(thermitPrv_t *prv, uint8_t chunkNo, bool done);
+static bool progressGetChunkIsDone(thermitPrv_t *prv, uint8_t chunkNo);
+static bool progressGetFirstDirty(thermitPrv_t *prv, uint8_t *dirtyChunk);
 
 
 static void initializeState(thermitPrv_t *prv);
@@ -84,7 +109,6 @@ static int waitForDataMessage(thermitPrv_t *prv);
 
 
 static thermitState_t mStep(thermit_t *inst);
-static void mProgress(thermit_t *inst, thermitProgress_t *progress);
 static int16_t mFeed(thermit_t *inst, uint8_t *rxBuf, int16_t rxLen);
 static int mReset(thermit_t *inst);
 static int mSetDeviceOpenCb(thermit_t *inst, cbDeviceOpen_t cb);
@@ -99,7 +123,6 @@ static int mSetFileWriteCb(thermit_t *inst, cbFileWrite_t cb);
 static const struct thermitMethodTable_t mTable =
     {
         mStep,
-        mProgress,
         mFeed,
         mReset,
         mSetDeviceOpenCb,
@@ -236,6 +259,195 @@ void thermitDelete(thermit_t *inst)
     DEBUG_ERR("deletion FAILED\r\n");
   }
 }
+
+
+static int progressInitialize(thermitPrv_t *prv, uint16_t fileSize)
+{
+  int ret = -1;
+
+  if(prv && (fileSize <= prv->parameters.maxFileSize) && (fileSize > 0))
+  {
+    thermitProgress_t *p = &(prv->progress);
+    uint8_t fullBytes;
+    uint8_t extraBits;
+    uint8_t byteIdx, bitIdx;
+    uint8_t extraByteValue = 0;
+
+    memset(p, 0, sizeof(thermitProgress_t));
+
+    /*remember number of chunks needed for this file*/
+    p->numberOfChunksNeeded = DIVISION_ROUNDED_UP(fileSize, prv->parameters.chunkSize);
+
+    /*preparation*/
+    fullBytes = (p->numberOfChunksNeeded / 8);
+    extraBits = (p->numberOfChunksNeeded % 8);
+
+    /*mark all used chunks dirty. First, go through full bytes*/
+    for(byteIdx = 0; byteIdx < fullBytes; byteIdx++)
+    {
+      p->chunkStatus[byteIdx] = 0xFF; /*all bits marked dirty*/
+    }
+
+    /*then, only the used bits in the highest byte will be marked dirty*/
+    for(bitIdx=0; bitIdx < extraBits; bitIdx++)
+    {
+      extraByteValue |= (1 << bitIdx);
+    }
+    p->chunkStatus[fullBytes] = extraByteValue;
+
+    /*calculate how many percents of the whole file is transferred in one chunk. Value 1234 means 12.34%*/
+    p->oneChunkPercentScaled100 = ((100 * 100) / p->numberOfChunksNeeded);
+  }
+}
+
+static int progressSetChunkStatus(thermitPrv_t *prv, uint8_t chunkNo, bool done)
+{
+  int ret = -1;
+  if(prv && (chunkNo < THERMIT_CHUNK_COUNT_MAX))
+  {
+    thermitProgress_t *p = &(prv->progress);
+    uint8_t byteIdx = THERMIT_PROGRESS_STATUS_BYTE_INDEX(chunkNo);
+    uint8_t bitIdx = THERMIT_PROGRESS_STATUS_BIT_INDEX(chunkNo);
+
+    if(done)
+    {
+      p->chunkStatus[byteIdx] &= ~(1 << bitIdx);  /*clear bit -> done*/
+    }
+    else
+    {
+      p->chunkStatus[byteIdx] |= (1 << bitIdx);  /*set bit -> dirty*/
+    } 
+
+    DEBUG_INFO("chunk %d = %s\r\n", chunkNo, done?"OK":"DIRTY");
+
+    ret = 0;
+  }
+  return ret;
+}
+
+static bool progressGetChunkIsDone(thermitPrv_t *prv, uint8_t chunkNo)
+{
+  bool chunkIsDone = false;
+  if(prv && (chunkNo < THERMIT_CHUNK_COUNT_MAX))
+  {
+    thermitProgress_t *p = &(prv->progress);
+    uint8_t byteIdx = THERMIT_PROGRESS_STATUS_BYTE_INDEX(chunkNo);
+    uint8_t bitIdx = THERMIT_PROGRESS_STATUS_BIT_INDEX(chunkNo);
+
+    if((p->chunkStatus[byteIdx] & (1 << bitIdx)) == 0)
+    {
+      chunkIsDone = true;
+    } 
+  }
+  return chunkIsDone;
+}
+
+static bool progressGetFirstDirty(thermitPrv_t *prv, uint8_t *dirtyChunk)
+{
+  bool ret = false;
+  if(prv && dirtyChunk)
+  {
+    thermitProgress_t *p = &(prv->progress);
+    uint8_t byteIdx;
+
+    for(byteIdx = 0; byteIdx < THERMIT_PROGRESS_STATUS_LENGTH; byteIdx++)
+    {
+      uint8_t walkedByte = p->chunkStatus[byteIdx];
+      if(walkedByte != 0)
+      {
+        uint8_t bitIdx;
+
+        /*dirty chunk is found at this group*/
+        for(bitIdx = 0; bitIdx < 8; bitIdx++)
+        {
+          if(((walkedByte >> bitIdx) & 0x01) == 0x01)
+          {
+            /*found!*/
+            *dirtyChunk = (byteIdx * 8) + bitIdx;
+
+            DEBUG_INFO("first dirty chunk = %d\r\n", *dirtyChunk);
+
+            ret = true;
+            break;  /*stop searching*/
+          }
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+#if THERMIT_DEBUG >= THERMIT_DBG_LVL_INFO
+#define PROGRESS_DUMP_LINE_LENGTH   40
+static void debugDumpProgress(thermitProgress_t *prog, uint8_t *prefix, uint8_t *postfix)
+{
+  uint8_t i;
+  uint8_t byteIdx = 0;
+  uint8_t bitIdx = 0;
+  uint8_t linesNeeded = DIVISION_ROUNDED_UP(prog->numberOfChunksNeeded, PROGRESS_DUMP_LINE_LENGTH);
+  uint8_t totalChunksToBeReported = prog->numberOfChunksNeeded;
+  bool finalRound = false;
+
+  if (prefix)
+  {
+    DEBUG_INFO("%s", prefix);
+  }
+
+  if(totalChunksToBeReported > 0)
+  {
+    for(i = 0; i < linesNeeded; i++)
+    {
+      uint8_t line[PROGRESS_DUMP_LINE_LENGTH+1];
+      uint8_t cntr = PROGRESS_DUMP_LINE_LENGTH;
+      uint8_t *ptr = line;
+
+      while(cntr--)
+      {
+
+        *(ptr++) = ((((prog->chunkStatus[byteIdx] >> bitIdx) & 0x01) == 0) ? 'G' : '-');
+        totalChunksToBeReported--;
+        if(totalChunksToBeReported == 0)
+        {
+          finalRound = true;  // force breaking out from for loop
+          break;            // break out from while loop
+        }
+
+        /*advance to next*/
+        bitIdx++;
+        if(bitIdx == 8)
+        {
+          bitIdx=0;
+          byteIdx++;
+        }
+      }
+
+      *(ptr++) = 0; //terminate
+      DEBUG_INFO("%03d: [", i*PROGRESS_DUMP_LINE_LENGTH);
+      DEBUG_INFO("%s]", line);
+      if(finalRound)
+      {
+        break;  /*break out from for loop*/
+      }
+      DEBUG_INFO("\r\n");
+    }
+  }
+
+  if (postfix)
+  {
+    DEBUG_INFO("%s", postfix);
+  }
+}
+#else
+static void debugDumpProgress(thermitProgress_t *prog, uint8_t *prefix, uint8_t *postfix)
+{
+  (void)prog;
+  (void)prefix;
+  (void)postfix;
+}
+#endif
+
+
+
 
 #if THERMIT_DEBUG >= THERMIT_DBG_LVL_INFO
 static void debugDumpFrame(uint8_t *buf, uint8_t *prefix)
@@ -1094,16 +1306,6 @@ static thermitState_t mStep(thermit_t *inst)
   }
 
   return ret;
-}
-
-static void mProgress(thermit_t *inst, thermitProgress_t *progress)
-{
-  thermitPrv_t *prv = (thermitPrv_t *)inst;
-
-  if (prv)
-  {
-    DEBUG_INFO("thermit->progress()\r\n");
-  }
 }
 
 static int16_t mFeed(thermit_t *inst, uint8_t *rxBuf, int16_t rxLen)

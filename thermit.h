@@ -66,13 +66,6 @@ typedef struct
   uint8_t *payloadPtr;
 } thermitPacket_t;
 
-typedef struct
-{
-  uint8_t name[THERMIT_FILENAME_MAX];
-  int16_t totalSize;
-  int16_t transferredBytes;
-} thermitProgress_t; //IS this needed?
-
 typedef enum
 {
   THERMIT_FIRST_DUMMY_STATE,                    //NEVER use this. It is just for range check and keeping other states in non-zero values.
@@ -103,7 +96,6 @@ typedef int16_t (*cbFileWrite_t)(thermit_t *inst, uint16_t offset, uint8_t *buf,
 struct thermitMethodTable_t
 {
   thermitState_t (*step)(thermit_t *inst);
-  void (*progress)(thermit_t *inst, thermitProgress_t *progress);
   int16_t (*feed)(thermit_t *inst, uint8_t *rxBuf, int16_t rxLen);
   int (*reset)(thermit_t *inst);
 
