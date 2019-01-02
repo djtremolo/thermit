@@ -100,6 +100,8 @@ typedef int (*cbFileClose_t)(thermitIoSlot_t slot);
 typedef int (*cbFileRead_t)(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxLen);
 typedef int (*cbFileWrite_t)(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len);
 typedef uint32_t (*cbSystemGetMilliseconds_t)(uint32_t *maxMs);
+typedef int (*cbSystemDebugPrintf_t)(const char *restrict format, ...);
+typedef uint16_t (*cbSystemCrc16_t)(const uint8_t *data, uint16_t size);
 
 typedef struct
 {
@@ -112,6 +114,8 @@ typedef struct
   cbFileRead_t fileRead;
   cbFileWrite_t fileWrite;
   cbSystemGetMilliseconds_t sysGetMs;
+  cbSystemDebugPrintf_t sysPrintf;
+  cbSystemCrc16_t sysCrc16;
 } thermitTargetAdaptationInterface_t;
 
 

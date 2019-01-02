@@ -77,10 +77,10 @@ static int deSerializeParameterStruct(uint8_t *buf, uint8_t len, thermitParamete
 static int serializeParameterStruct(uint8_t *buf, uint8_t *len, thermitParameters_t *params);
 static int findBestCommonParameterSet(thermitParameters_t *p1, thermitParameters_t *p2, thermitParameters_t *result);
 
-static void debugDumpParameters(thermitParameters_t *par, uint8_t *prefix, uint8_t *postfix);
-static void debugDumpFrame(uint8_t *buf, uint8_t *prefix);
-static void debugDumpState(thermitState_t state, uint8_t *prefix, uint8_t *postfix);
-static void debugDumpProgress(thermitProgress_t *prog, uint8_t *prefix, uint8_t *postfix);
+static void debugDumpParameters(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix);
+static void debugDumpFrame(thermitPrv_t *prv, uint8_t *buf, uint8_t *prefix);
+static void debugDumpState(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix);
+static void debugDumpProgress(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix);
 
 static int progressInitialize(thermitPrv_t *prv, uint16_t fileSize);
 static int progressSetChunkStatus(thermitPrv_t *prv, uint8_t chunkNo, bool done);
@@ -89,11 +89,14 @@ static bool progressGetFirstDirty(thermitPrv_t *prv, uint8_t *dirtyChunk);
 
 
 static void initializeState(thermitPrv_t *prv);
-static int parsePacketContent(thermitPrv_t *prv);
-static int handleIncoming(thermitPrv_t *prv);
 
-static uint8_t* framePrepare(thermitPacket_t *pkt);
-static int frameFinalize(thermitPacket_t *pkt, uint8_t len);
+static int parsePacketContent(thermitPrv_t *prv);
+
+static uint8_t* framePrepare(thermitPrv_t *prv);
+static int frameFinalize(thermitPrv_t *prv, uint8_t len);
+
+
+static int handleIncoming(thermitPrv_t *prv);
 static int handleOutgoing(thermitPrv_t *prv);
 
 
@@ -147,6 +150,13 @@ static bool validateTargetAdaptation(thermitTargetAdaptationInterface_t *targetI
     return false;
   if(targetIf->sysGetMs == NULL)
     return false;
+  if(targetIf->sysCrc16 == NULL)
+    return false;
+
+#if THERMIT_DEBUG > THERMIT_DBG_LVL_NONE
+  if(targetIf->sysPrintf == NULL)
+    return false;
+#endif
 
   return true;
 }
@@ -202,25 +212,7 @@ static void initializeParameters(thermitPrv_t *prv)
 
 thermit_t *thermitNew(uint8_t *linkName, bool isMaster, thermitTargetAdaptationInterface_t *targetIf)
 {
-  thermitPrv_t *prv = NULL;
-
-  DEBUG_INFO("thermitNew()\r\n");
-
-  //don't allow creating modes that are not supported
-#if !THERMIT_MASTER_MODE_SUPPORT
-  if(isMaster)
-  {
-    DEBUG_FATAL("Fatal: Master mode not supported!\r\n");
-    return NULL;
-  }
-#endif
-#if !THERMIT_SLAVE_MODE_SUPPORT
-  if(!isMaster)
-  {
-    DEBUG_FATAL("Fatal: Slave mode not supported!\r\n");
-    return NULL;
-  }
-#endif
+  thermitPrv_t *returnedPrivateInstance = NULL;
 
   if (linkName)
   {
@@ -228,8 +220,27 @@ thermit_t *thermitNew(uint8_t *linkName, bool isMaster, thermitTargetAdaptationI
 
     if (p)
     {
-      thermitTargetAdaptationInterface_t *tgt = &(p->targetIf);
-      p->comLink = tgt->devOpen(linkName, 0);
+      DEBUG_INFO(p, "thermitNew()\r\n");
+      //don't allow creating modes that are not supported
+      #if !THERMIT_MASTER_MODE_SUPPORT
+      if(isMaster)
+      {
+        DEBUG_FATAL(p, "Fatal: Master mode not supported!\r\n");
+        releaseInstance(p);
+        return NULL;
+      }
+      #endif
+      #if !THERMIT_SLAVE_MODE_SUPPORT
+      if(!isMaster)
+      {
+        DEBUG_FATAL(p, "Fatal: Slave mode not supported!\r\n");
+        releaseInstance(p);
+        return NULL;
+      }
+      #endif
+
+      /*try to open communication device.*/
+      p->comLink = targetIf->devOpen(linkName, 0);
 
       if(p->comLink >= 0)
       {
@@ -238,45 +249,41 @@ thermit_t *thermitNew(uint8_t *linkName, bool isMaster, thermitTargetAdaptationI
 
         initializeParameters(p);
 
-        debugDumpParameters(&(p->parameters), "Initial parameters: ", "\r\n");
+        debugDumpParameters(p, "Initial parameters: ", "\r\n");
 
         initializeState(p);
 
-        DEBUG_INFO("created %s instance using '%s'.\r\n", (isMaster ? "master" : "slave"), linkName);
+        DEBUG_INFO(p, "created %s instance using '%s'.\r\n", (isMaster ? "master" : "slave"), linkName);
 
-        prv = p; /*return this instance as it was successfully created*/
+        returnedPrivateInstance = p; /*return this instance as it was successfully created*/
       }
       else
       {
-        DEBUG_ERR("Error: Could not open communication device '%s'.\r\n", linkName);
+        DEBUG_ERR(p, "Error: Could not open communication device '%s'.\r\n", linkName);
         releaseInstance(p);
       }
     }
   }
-  else
-  {
-    DEBUG_ERR("incorrect linkName - FAILED.\r\n");
-  }
 
-  return (thermit_t *)prv;
+  return (thermit_t *)returnedPrivateInstance;
 }
 
 void thermitDelete(thermit_t *inst)
 {
   thermitPrv_t *prv = (thermitPrv_t *)inst;
 
-  DEBUG_INFO("thermitDelete()\r\n");
+  DEBUG_INFO(prv, "thermitDelete()\r\n");
 
   if (prv)
   {
     thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
     prv->comLink = tgt->devClose(prv->comLink);
     releaseInstance(prv);
-    DEBUG_INFO("instance deleted\r\n");
+    DEBUG_INFO(prv, "instance deleted\r\n");
   }
   else
   {
-    DEBUG_ERR("deletion FAILED\r\n");
+    DEBUG_ERR(prv, "deletion FAILED\r\n");
   }
 }
 
@@ -338,7 +345,7 @@ static int progressSetChunkStatus(thermitPrv_t *prv, uint8_t chunkNo, bool done)
       p->chunkStatus[byteIdx] |= (1 << bitIdx);  /*set bit -> dirty*/
     } 
 
-    DEBUG_INFO("chunk %d = %s\r\n", chunkNo, done?"OK":"DIRTY");
+    DEBUG_INFO(prv, "chunk %d = %s\r\n", chunkNo, done?"OK":"DIRTY");
 
     ret = 0;
   }
@@ -402,7 +409,7 @@ static bool progressGetFirstDirty(thermitPrv_t *prv, uint8_t *dirtyChunk)
           /*found!*/
           *dirtyChunk = (byteIdx * 8) + bitIdx;
 
-          DEBUG_INFO("first dirty chunk = %d\r\n", *dirtyChunk);
+          DEBUG_INFO(prv, "first dirty chunk = %d\r\n", *dirtyChunk);
 
           ret = true;
           break;  /*stop searching*/
@@ -422,67 +429,72 @@ static bool progressGetFirstDirty(thermitPrv_t *prv, uint8_t *dirtyChunk)
 
 #if THERMIT_DEBUG >= THERMIT_DBG_LVL_INFO
 #define PROGRESS_DUMP_LINE_LENGTH   40
-static void debugDumpProgress(thermitProgress_t *prog, uint8_t *prefix, uint8_t *postfix)
+static void debugDumpProgress(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix)
 {
   uint8_t i;
   uint8_t byteIdx = 0;
   uint8_t bitIdx = 0;
-  uint8_t linesNeeded = DIVISION_ROUNDED_UP(prog->numberOfChunksNeeded, PROGRESS_DUMP_LINE_LENGTH);
-  uint8_t totalChunksToBeReported = prog->numberOfChunksNeeded;
-  bool finalRound = false;
 
-  if (prefix)
+  if(prv)
   {
-    DEBUG_INFO("%s", prefix);
-  }
+    thermitProgress_t *prog = &(prv->progress);
+    uint8_t linesNeeded = DIVISION_ROUNDED_UP(prog->numberOfChunksNeeded, PROGRESS_DUMP_LINE_LENGTH);
+    uint8_t totalChunksToBeReported = prog->numberOfChunksNeeded;
+    bool finalRound = false;
 
-  if(totalChunksToBeReported > 0)
-  {
-    for(i = 0; i < linesNeeded; i++)
+    if (prefix)
     {
-      uint8_t line[PROGRESS_DUMP_LINE_LENGTH+1];
-      uint8_t cntr = PROGRESS_DUMP_LINE_LENGTH;
-      uint8_t *ptr = line;
-
-      while(cntr--)
-      {
-        *(ptr++) = ((((prog->chunkStatus[byteIdx] >> bitIdx) & 0x01) == 0) ? 'G' : '-');
-        totalChunksToBeReported--;
-        if(totalChunksToBeReported == 0)
-        {
-          finalRound = true;  // force breaking out from for loop
-          break;            // break out from while loop
-        }
-
-        /*advance to next*/
-        bitIdx++;
-        if(bitIdx == 8)
-        {
-          bitIdx=0;
-          byteIdx++;
-        }
-      }
-
-      *(ptr++) = 0; //terminate
-      DEBUG_INFO("%03d: [", i*PROGRESS_DUMP_LINE_LENGTH);
-      DEBUG_INFO("%s]", line);
-      if(finalRound)
-      {
-        break;  /*break out from for loop*/
-      }
-      DEBUG_INFO("\r\n");
+      DEBUG_INFO(prv, "%s", prefix);
     }
-  }
 
-  if (postfix)
-  {
-    DEBUG_INFO("%s", postfix);
+    if(totalChunksToBeReported > 0)
+    {
+      for(i = 0; i < linesNeeded; i++)
+      {
+        uint8_t line[PROGRESS_DUMP_LINE_LENGTH+1];
+        uint8_t cntr = PROGRESS_DUMP_LINE_LENGTH;
+        uint8_t *ptr = line;
+
+        while(cntr--)
+        {
+          *(ptr++) = ((((prog->chunkStatus[byteIdx] >> bitIdx) & 0x01) == 0) ? 'G' : '-');
+          totalChunksToBeReported--;
+          if(totalChunksToBeReported == 0)
+          {
+            finalRound = true;  // force breaking out from for loop
+            break;            // break out from while loop
+          }
+
+          /*advance to next*/
+          bitIdx++;
+          if(bitIdx == 8)
+          {
+            bitIdx=0;
+            byteIdx++;
+          }
+        }
+
+        *(ptr++) = 0; //terminate
+        DEBUG_INFO(prv, "%03d: [", i*PROGRESS_DUMP_LINE_LENGTH);
+        DEBUG_INFO(prv, "%s]", line);
+        if(finalRound)
+        {
+          break;  /*break out from for loop*/
+        }
+        DEBUG_INFO(prv, "\r\n");
+      }
+    }
+
+    if (postfix)
+    {
+      DEBUG_INFO(prv, "%s", postfix);
+    }
   }
 }
 #else
-static void debugDumpProgress(thermitProgress_t *prog, uint8_t *prefix, uint8_t *postfix)
+static void debugDumpProgress(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix)
 {
-  (void)prog;
+  (void)prv;
   (void)prefix;
   (void)postfix;
 }
@@ -492,27 +504,27 @@ static void debugDumpProgress(thermitProgress_t *prog, uint8_t *prefix, uint8_t 
 
 
 #if THERMIT_DEBUG >= THERMIT_DBG_LVL_INFO
-static void debugDumpFrame(uint8_t *buf, uint8_t *prefix)
+static void debugDumpFrame(thermitPrv_t *prv, uint8_t *buf, uint8_t *prefix)
 {
   int i;
   int pLen = (int)buf[5];
 
   if (prefix)
   {
-    DEBUG_INFO("%s ", prefix);
+    DEBUG_INFO(prv, "%s ", prefix);
   }
 
-  DEBUG_INFO("FC:%02X RFId:%02X Feedback:%02X SFId:%02X Chunk:%02X DataLen:%02X(%d) [", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[5]);
+  DEBUG_INFO(prv, "FC:%02X RFId:%02X Feedback:%02X SFId:%02X Chunk:%02X DataLen:%02X(%d) [", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[5]);
 
   for (i = 0; i < pLen; i++)
   {
-    DEBUG_INFO("%02X%s", buf[6 + i], (i == (pLen - 1) ? "" : " "));
+    DEBUG_INFO(prv, "%02X%s", buf[6 + i], (i == (pLen - 1) ? "" : " "));
   }
 
-  DEBUG_INFO("] CRC:%04X\r\n", (((uint16_t)buf[6 + pLen]) << 8) | ((uint16_t)buf[6 + pLen + 1]));
+  DEBUG_INFO(prv, "] CRC:%04X\r\n", (((uint16_t)buf[6 + pLen]) << 8) | ((uint16_t)buf[6 + pLen + 1]));
 }
 #else
-static void debugDumpFrame(uint8_t *buf, uint8_t *prefix)
+static void debugDumpFrame(thermitPrv_t *prv, uint8_t *buf, uint8_t *prefix)
 {
   (void)buf;
   (void)prefix;
@@ -520,28 +532,33 @@ static void debugDumpFrame(uint8_t *buf, uint8_t *prefix)
 #endif
 
 #if THERMIT_DEBUG >= THERMIT_DBG_LVL_INFO
-static void debugDumpParameters(thermitParameters_t *par, uint8_t *prefix, uint8_t *postfix)
+static void debugDumpParameters(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix)
 {
   int i;
 
-  if (prefix)
+  if(prv)
   {
-    DEBUG_INFO("%s", prefix);
-  }
+    thermitParameters_t *par = &(prv->parameters);
 
-  DEBUG_INFO("version = %d, ", par->version);
-  DEBUG_INFO("chunkSize = %d, ", par->chunkSize);
-  DEBUG_INFO("maxFileSize = %d, ", par->maxFileSize);
-  DEBUG_INFO("keepAliveMs = %d, ", par->keepAliveMs);
-  DEBUG_INFO("burstLength = %d", par->burstLength);
+    if (prefix)
+    {
+      DEBUG_INFO(prv, "%s", prefix);
+    }
 
-  if (postfix)
-  {
-    DEBUG_INFO("%s", postfix);
+    DEBUG_INFO(prv, "version = %d, ", par->version);
+    DEBUG_INFO(prv, "chunkSize = %d, ", par->chunkSize);
+    DEBUG_INFO(prv, "maxFileSize = %d, ", par->maxFileSize);
+    DEBUG_INFO(prv, "keepAliveMs = %d, ", par->keepAliveMs);
+    DEBUG_INFO(prv, "burstLength = %d", par->burstLength);
+
+    if (postfix)
+    {
+      DEBUG_INFO(prv, "%s", postfix);
+    }
   }
 }
 #else
-static void debugDumpParameters(thermitParameters_t *par, uint8_t *prefix, uint8_t *postfix)
+static void debugDumpParameters(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix)
 {
   (void)par;
   (void)prefix;
@@ -551,46 +568,51 @@ static void debugDumpParameters(thermitParameters_t *par, uint8_t *prefix, uint8
 
 
 #if THERMIT_DEBUG >= THERMIT_DBG_LVL_INFO
-static void debugDumpState(thermitState_t state, uint8_t *prefix, uint8_t *postfix)
+static void debugDumpState(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix)
 {
   int i;
 
-  if (prefix)
+  if(prv)
   {
-    DEBUG_INFO("%s", prefix);
-  }
+    thermitState_t state = prv->state;
 
-  switch(state)
-  {
-    case THERMIT_WAITING_FOR_CALLBACK_CONFIGURATION:
-      DEBUG_INFO("THERMIT_WAITING_FOR_CALLBACK_CONFIGURATION");
-      break;
-    case THERMIT_SYNC_FIRST:
-      DEBUG_INFO("THERMIT_SYNC_FIRST");
-      break;
-    case THERMIT_SYNC_SECOND:
-      DEBUG_INFO("THERMIT_SYNC_SECOND");
-      break;
-    case THERMIT_RUNNING:
-      DEBUG_INFO("THERMIT_RUNNING");
-      break;
-    case THERMIT_OUT_OF_SYNC:
-      DEBUG_INFO("THERMIT_OUT_OF_SYNC");
-      break;
-    default:
-      DEBUG_INFO("Illegal state = %d", state);
-      break;
-  }
+    if (prefix)
+    {
+      DEBUG_INFO(prv, "%s", prefix);
+    }
 
-  if (postfix)
-  {
-    DEBUG_INFO("%s", postfix);
+    switch(state)
+    {
+      case THERMIT_WAITING_FOR_CALLBACK_CONFIGURATION:
+        DEBUG_INFO(prv, "THERMIT_WAITING_FOR_CALLBACK_CONFIGURATION");
+        break;
+      case THERMIT_SYNC_FIRST:
+        DEBUG_INFO(prv, "THERMIT_SYNC_FIRST");
+        break;
+      case THERMIT_SYNC_SECOND:
+        DEBUG_INFO(prv, "THERMIT_SYNC_SECOND");
+        break;
+      case THERMIT_RUNNING:
+        DEBUG_INFO(prv, "THERMIT_RUNNING");
+        break;
+      case THERMIT_OUT_OF_SYNC:
+        DEBUG_INFO(prv, "THERMIT_OUT_OF_SYNC");
+        break;
+      default:
+        DEBUG_INFO(prv, "Illegal state = %d", state);
+        break;
+    }
+
+    if (postfix)
+    {
+      DEBUG_INFO(prv, "%s", postfix);
+    }
   }
 }
 #else
-static void debugDumpState(thermitState_t state, uint8_t *prefix, uint8_t *postfix)
+static void debugDumpState(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix)
 {
-  (void)state;
+  (void)prv;
   (void)prefix;
   (void)postfix;
 }
@@ -604,8 +626,8 @@ static int changeState(thermitPrv_t *prv, thermitState_t newState)
   {
     if((newState > THERMIT_FIRST_DUMMY_STATE) && (newState < THERMIT_LAST_DUMMY_STATE))
     {
-      debugDumpState(newState, "changeState: ", "\r\n");
       prv->state = newState;
+      debugDumpState(prv, "changeState: ", "\r\n");
       ret = 0;
     }
   }
@@ -631,9 +653,10 @@ static int parsePacketContent(thermitPrv_t *prv)
         uint8_t *crcPtr = &(p[THERMIT_CRC_OFFSET(plLen)]);
         uint16_t calculatedCrc;
         uint16_t receivedCrc;
+        thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
 
         receivedCrc = msgGetU16(&crcPtr);
-        calculatedCrc = crc16(p, THERMIT_CRC_OFFSET(plLen));
+        calculatedCrc = tgt->sysCrc16(p, THERMIT_CRC_OFFSET(plLen));
 
         if (receivedCrc == calculatedCrc)
         {
@@ -658,12 +681,13 @@ static int parsePacketContent(thermitPrv_t *prv)
   return ret;
 }
 
-static uint8_t* framePrepare(thermitPacket_t *pkt)
+static uint8_t* framePrepare(thermitPrv_t *prv)
 {
   uint8_t *p = NULL;
 
-  if(pkt)
+  if(prv)
   {
+    thermitPacket_t *pkt = &(prv->packet);
     p = pkt->rawBuf;
 
     msgPutU8(&p, pkt->fCode);
@@ -677,24 +701,27 @@ static uint8_t* framePrepare(thermitPacket_t *pkt)
   return p;
 }
 
-static int frameFinalize(thermitPacket_t *pkt, uint8_t len)
+static int frameFinalize(thermitPrv_t *prv, uint8_t len)
 {
   int ret = -1;
 
-  if(pkt)
+  if(prv)
   {
+    thermitPacket_t *pkt = &(prv->packet);
+
     if(len <= THERMIT_PAYLOAD_SIZE)
     {
       uint8_t *p = pkt->rawBuf;
       uint8_t *crcPtr;
       uint8_t bytesToCover;
       uint16_t calculatedCrc;
+      thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
 
       p[THERMIT_PAYLOAD_LEN_OFFSET] = len;
       bytesToCover = THERMIT_CRC_OFFSET(len);
       crcPtr = &(p[bytesToCover]);
 
-      calculatedCrc = crc16(pkt->rawBuf, (uint16_t)bytesToCover); 
+      calculatedCrc = tgt->sysCrc16(pkt->rawBuf, (uint16_t)bytesToCover); 
 
       msgPutU16(&crcPtr, calculatedCrc);
 
@@ -817,11 +844,11 @@ static int waitForSyncProposal(thermitPrv_t *prv)
   case THERMIT_FCODE_SYNC_PROPOSAL:
     if(deSerializeParameterStruct(pkt->payloadPtr, pkt->payloadLen, &params) == 0)
     {
-      debugDumpParameters(&params, "proposed parameters: ", "\r\n");
+      debugDumpParameters(prv, "proposed parameters: ", "\r\n");
 
       if(findBestCommonParameterSet(&params, &(prv->parameters), &(prv->parameters)) == 0)
       {
-        debugDumpParameters(&(prv->parameters), "best common set: ", "\r\n");
+        debugDumpParameters(prv, "best common set: ", "\r\n");
         prv->proposalReceived = true; /*this makes the TX function to send response*/
 
         ret = 0;
@@ -847,7 +874,7 @@ static int waitForSyncAck(thermitPrv_t *prv)
     switch (pkt->fCode)
     {
     case THERMIT_FCODE_SYNC_ACK:
-      debugDumpParameters(&(prv->parameters), "agreed parameter set: ", "\r\n");
+      debugDumpParameters(prv, "agreed parameter set: ", "\r\n");
       ret = 0;
       break;
 
@@ -889,7 +916,7 @@ static int waitForSyncResponse(thermitPrv_t *prv)
 
       if(ret != 0)
       {
-        DEBUG_ERR("Error: the parameter set cannot be negotiated.\r\n");
+        DEBUG_ERR(prv, "Error: the parameter set cannot be negotiated.\r\n");
       }
       break;
 
@@ -915,9 +942,9 @@ static int sendDataMessage(thermitPrv_t *prv)
     pkt->sndChunkNo = 0;
     pkt->sndFileId = 0;
 
-    if(framePrepare(pkt) != NULL)
+    if(framePrepare(prv) != NULL)
     {
-      ret = frameFinalize(pkt, 0);
+      ret = frameFinalize(prv, 0);
     }
   }
 
@@ -987,7 +1014,7 @@ static int slaveRx(thermitPrv_t *prv)
       break;
 
     default:
-      debugDumpState(prv->state, "slaveRx: Unknown state: ", ".\r\n");
+      debugDumpState(prv, "slaveRx: Unknown state: ", ".\r\n");
       /*unknown state -> require sync*/
       initializeState(prv);
       break;
@@ -1036,7 +1063,7 @@ static int masterRx(thermitPrv_t *prv)
       break;
 
     default:
-      debugDumpState(prv->state, "masterRx: Unknown state: ", ".\r\n");
+      debugDumpState(prv, "masterRx: Unknown state: ", ".\r\n");
       /*unknown state -> require sync*/
       initializeState(prv);
       ret = 1;
@@ -1064,7 +1091,7 @@ static int handleIncoming(thermitPrv_t *prv)
     if (parsePacketContent(prv) == 0)
     {
       /*message was received*/
-      debugDumpFrame(pkt->rawBuf, "RECV:");
+      debugDumpFrame(prv, pkt->rawBuf, "RECV:");
 
       /*master and slave mode have different states, therefore the handling is separated here*/
       if(prv->isMaster)
@@ -1102,12 +1129,12 @@ static int sendSyncProposal(thermitPrv_t *prv)
     pkt->sndChunkNo = 0;
     pkt->sndFileId = 0;
 
-    plBuf = framePrepare(pkt);
+    plBuf = framePrepare(prv);
     if(plBuf)
     {
       if(serializeParameterStruct(plBuf, &plLen, &(prv->parameters)) == 0)
       {
-        ret = frameFinalize(pkt, plLen);
+        ret = frameFinalize(prv, plLen);
       }
     }
   }
@@ -1133,12 +1160,12 @@ static int sendSyncResponse(thermitPrv_t *prv)
       pkt->sndChunkNo = 0;
       pkt->sndFileId = 0;
 
-      plBuf = framePrepare(pkt);
+      plBuf = framePrepare(prv);
       if(plBuf)
       {
         if(serializeParameterStruct(plBuf, &plLen, &(prv->parameters)) == 0)
         {
-          ret = frameFinalize(pkt, plLen);
+          ret = frameFinalize(prv, plLen);
         }
       }
 
@@ -1166,8 +1193,8 @@ static int sendOutOfSyncSync(thermitPrv_t *prv)
     pkt->sndChunkNo = 0;
     pkt->sndFileId = 0;
 
-    (void)framePrepare(pkt);
-    ret = frameFinalize(pkt, 0);
+    (void)framePrepare(prv);
+    ret = frameFinalize(prv, 0);
   }
 
   return ret;
@@ -1186,8 +1213,8 @@ static int sendSyncAck(thermitPrv_t *prv)
     pkt->sndChunkNo = 0;
     pkt->sndFileId = 0;
 
-    (void)framePrepare(pkt);
-    ret = frameFinalize(pkt, 0);
+    (void)framePrepare(prv);
+    ret = frameFinalize(prv, 0);
   }
 
   return ret;
@@ -1227,7 +1254,7 @@ static int masterTx(thermitPrv_t *prv)
       break;
 
     default:
-      debugDumpState(prv->state, "masterTx: Unknown state: ", ".\r\n");
+      debugDumpState(prv, "masterTx: Unknown state: ", ".\r\n");
       /*unknown state -> require sync*/
       initializeState(prv);
       break;
@@ -1275,7 +1302,7 @@ static int slaveTx(thermitPrv_t *prv)
       break;
 
     default:
-      debugDumpState(prv->state, "slaveTx: Unknown state: ", ".\r\n");
+      debugDumpState(prv, "slaveTx: Unknown state: ", ".\r\n");
       /*unknown state -> require sync*/
       initializeState(prv);
       break;
@@ -1326,7 +1353,7 @@ static int handleOutgoing(thermitPrv_t *prv)
         thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
   
         (void)tgt->devWrite(prv->comLink, pkt->rawBuf, pkt->rawLen);
-        debugDumpFrame(pkt->rawBuf, "SEND:");
+        debugDumpFrame(prv, pkt->rawBuf, "SEND:");
       }
     }
 
@@ -1344,7 +1371,7 @@ static thermitState_t mStep(thermit_t *inst)
   if (prv)
   {
     int rxRet, txRet;
-    debugDumpState(prv->state, "thermit->step(", ")\r\n");
+    debugDumpState(prv, "thermit->step(", ")\r\n");
 
     rxRet = handleIncoming(prv);
     txRet = handleOutgoing(prv);
@@ -1360,7 +1387,7 @@ static int mReset(thermit_t *inst)
 
   if (prv)
   {
-    DEBUG_INFO("thermit->reset()\r\n");
+    DEBUG_INFO(prv, "thermit->reset()\r\n");
   }
 
   return ret;

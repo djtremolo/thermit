@@ -13,30 +13,32 @@
 
 
 
+#define TGT_PRINTF(prv) ((prv)->targetIf.sysPrintf)
+
 
 #if THERMIT_DEBUG >= THERMIT_DBG_LVL_FATAL
 #include <stdio.h>
-#define DEBUG_FATAL(...) printf(__VA_ARGS__);
+#define DEBUG_FATAL(prv, ...) (TGT_PRINTF(prv)(__VA_ARGS__));
 #else
-#define DEBUG_FATAL(...)
+#define DEBUG_FATAL(prv, ...)
 #endif
 
 #if THERMIT_DEBUG >= THERMIT_DBG_LVL_ERR
-#define DEBUG_ERR(...) printf(__VA_ARGS__);
+#define DEBUG_ERR(prv, ...) (TGT_PRINTF(prv)(__VA_ARGS__));
 #else
-#define DEBUG_ERR(...)
+#define DEBUG_ERR(prv, ...)
 #endif
 
 #if THERMIT_DEBUG >= THERMIT_DBG_LVL_WARN
-#define DEBUG_WARN(...) printf(__VA_ARGS__);
+#define DEBUG_WARN(prv, ...) (TGT_PRINTF(prv)(__VA_ARGS__));
 #else
-#define DEBUG_WARN(...)
+#define DEBUG_WARN(prv, ...)
 #endif
 
 #if THERMIT_DEBUG >= THERMIT_DBG_LVL_INFO
-#define DEBUG_INFO(...) printf(__VA_ARGS__);
+#define DEBUG_INFO(prv, ...) (TGT_PRINTF(prv)(__VA_ARGS__));
 #else
-#define DEBUG_INFO(...)
+#define DEBUG_INFO(prv, ...)
 #endif
 
 #endif //__THERMITDEBUG_H__

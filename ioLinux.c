@@ -1,13 +1,13 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
-
-
+#include "crc.h"
 #include "thermit.h"
 #include "streamFraming.h"
 
@@ -25,19 +25,22 @@ static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode);
 static int ioFileRead(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxLen);
 static int ioFileWrite(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len);
 static int ioFileClose(thermitIoSlot_t slot);
+static int dbgPrintf(const char *restrict format, ...);
 
 
 thermitTargetAdaptationInterface_t ioLinuxTargetIf = 
 {
-    ioDeviceOpen,/*devOpen*/ 
-    ioDeviceClose,/*devClose*/    
-    ioDeviceRead,/*devRead*/ 
-    ioDeviceWrite,/*devWrite*/    
-    ioFileOpen,/*fileOpen*/    
-    ioFileClose,/*fileClose*/   
-    ioFileRead,/*fileRead*/    
-    ioFileWrite,/*fileWrite*/   
-    millis/*sysGetMs*/    
+  ioDeviceOpen,/*devOpen*/ 
+  ioDeviceClose,/*devClose*/    
+  ioDeviceRead,/*devRead*/ 
+  ioDeviceWrite,/*devWrite*/    
+  ioFileOpen,/*fileOpen*/    
+  ioFileClose,/*fileClose*/   
+  ioFileRead,/*fileRead*/    
+  ioFileWrite,/*fileWrite*/   
+  millis,/*sysGetMs*/    
+  dbgPrintf,/*sysPrintf*/
+  crc16/*sysCrc16*/
 };
 
 
@@ -56,6 +59,17 @@ typedef struct
 
 static ioDeviceObject_t communicationDevices[IOLINUX_DEVICES_MAX];
 static ioFileObject_t storageFiles[IOLINUX_FILES_MAX];
+
+
+static int dbgPrintf(const char *restrict format, ...)
+{
+  va_list args;
+  va_start(args, format);
+
+  vprintf(format, args);
+
+  va_end(args);  
+}
 
 
 static uint32_t millis(uint32_t *max)
@@ -234,7 +248,7 @@ static thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode)
 
   (void)mode;
 
-  DEBUG_INFO("ioDeviceOpen()\r\n");
+  dbgPrintf("ioDeviceOpen()\r\n");
 
   /*call initialization for communication devices. It is safe to call it anytime. It will 
     initialize only at first call and jump out when already initialized.*/
@@ -254,7 +268,7 @@ static thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode)
 
         communicationDevices[slot].handle = fd;
 
-        DEBUG_INFO("device '%s' opened\r\n", devName);
+        dbgPrintf("device '%s' opened\r\n", devName);
 
         ret = slot;
       }
@@ -268,14 +282,14 @@ static int ioDeviceClose(thermitIoSlot_t slot)
 {
   int ret = -1;
 
-  DEBUG_INFO("ioDeviceClose()\r\n");
+  dbgPrintf("ioDeviceClose()\r\n");
 
   if (deviceSlotIsValid(slot))
   {
     close(slot);
     releaseDevice(slot);
 
-    DEBUG_INFO("device closed\r\n");
+    dbgPrintf("device closed\r\n");
     ret = 0;
   }
 
