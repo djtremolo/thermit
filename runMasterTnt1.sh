@@ -1,2 +1,2 @@
-./thermit /dev/tnt1 m
+./thermit /dev/tnt1 s
 

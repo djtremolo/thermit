@@ -21,7 +21,9 @@ int main(int argc, char* argv[])
     }
     else
     {
-        printf("syntax: %s devname mode, where:\r\ndevname = '/dev/xyz0'\r\nmode = 'm' (master)\r\nmode = 's' (slave)\r\n", argv[0]);
+      #ifndef THERMIT_NO_DEBUG
+      printf("syntax: %s devname mode, where:\r\ndevname = '/dev/xyz0'\r\nmode = 'm' (master)\r\nmode = 's' (slave)\r\n", argv[0]);
+      #endif
     }
 
     if(linkName)
@@ -32,7 +34,10 @@ int main(int argc, char* argv[])
         {
             volatile bool end = false;
 
+            #ifndef THERMIT_NO_DEBUG
             printf("instance %p running in %s role.\r\n", t, masterRole?"master":"slave");
+            #endif
+            
             while(!end)
             {
                 t->m->step(t);

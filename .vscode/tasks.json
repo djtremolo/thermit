@@ -3,15 +3,15 @@
     // for the documentation about the tasks.json format
     "version": "2.0.0",
     "tasks": [
-        {
-            "label": "make",
-            "type": "shell",
-            "command": "clear && make",
-            "problemMatcher":"$gcc",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            }
+      {
+        "label": "make",
+        "type": "shell",
+        "command": "clear && make clean && make",
+        "problemMatcher": "$gcc",
+        "group": {
+          "kind": "build",
+          "isDefault": true
         }
+      }
     ]
 }

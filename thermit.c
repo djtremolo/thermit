@@ -560,7 +560,7 @@ static void debugDumpParameters(thermitPrv_t *prv, uint8_t *prefix, uint8_t *pos
 #else
 static void debugDumpParameters(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix)
 {
-  (void)par;
+  (void)prv;
   (void)prefix;
   (void)postfix;
 }

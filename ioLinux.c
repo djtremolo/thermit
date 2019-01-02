@@ -63,12 +63,14 @@ static ioFileObject_t storageFiles[IOLINUX_FILES_MAX];
 
 static int dbgPrintf(const char *restrict format, ...)
 {
+  int ret = 0;
+  #ifndef THERMIT_NO_DEBUG
   va_list args;
   va_start(args, format);
-
-  vprintf(format, args);
-
+  ret = vprintf(format, args);
   va_end(args);  
+  #endif
+  return ret;
 }
 
 
@@ -178,7 +180,11 @@ static void releaseFile(thermitIoSlot_t slot)
   }
 }
 
-#define error_message printf
+#ifndef THERMIT_NO_DEBUG
+#define error_message(...) printf(__VA_ARGS__)
+#else
+#define error_message(...)
+#endif
 /*
 the set_interface_attribs and set_blocking functions are copied from:
 https://stackoverflow.com/questions/6947413/how-to-open-read-and-write-from-serial-port-in-c

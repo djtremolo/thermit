@@ -9,8 +9,11 @@
 #define THERMIT_DBG_LVL_NONE        0
 
 
+#ifdef THERMIT_NO_DEBUG
+#define THERMIT_DEBUG               THERMIT_DBG_LVL_NONE
+#else
 #define THERMIT_DEBUG               THERMIT_DBG_LVL_INFO
-
+#endif
 
 
 #define TGT_PRINTF(prv) ((prv)->targetIf.sysPrintf)
