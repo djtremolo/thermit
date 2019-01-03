@@ -21,10 +21,12 @@ static thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode);
 static int ioDeviceClose(thermitIoSlot_t slot);
 static int ioDeviceRead(thermitIoSlot_t slot, uint8_t *buf, int16_t maxLen);
 static int ioDeviceWrite(thermitIoSlot_t slot, uint8_t *buf, int16_t len);
-static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode);
+static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode, uint16_t *fileSize);
 static int ioFileRead(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxLen);
 static int ioFileWrite(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len);
 static int ioFileClose(thermitIoSlot_t slot);
+static bool ioFileAvailableForSending();
+
 static int dbgPrintf(const char *restrict format, ...);
 
 
@@ -37,7 +39,8 @@ thermitTargetAdaptationInterface_t ioLinuxTargetIf =
   ioFileOpen,/*fileOpen*/    
   ioFileClose,/*fileClose*/   
   ioFileRead,/*fileRead*/    
-  ioFileWrite,/*fileWrite*/   
+  ioFileWrite,/*fileWrite*/
+  ioFileAvailableForSending,/*fileAvailableForSending*/
   millis,/*sysGetMs*/    
   dbgPrintf,/*sysPrintf*/
   crc16/*sysCrc16*/
@@ -179,6 +182,19 @@ static void releaseFile(thermitIoSlot_t slot)
     storageFiles[slot].active = false;
   }
 }
+
+static bool ioFileAvailableForSending()
+{
+  bool ret = false;
+
+  /*WORKAROUND: check if the current file is open. If yes, return false, otherwise true*/
+  if(!(storageFiles[0].active))
+  {
+    ret = true;
+  }
+  return ret;
+}
+
 
 #ifndef THERMIT_NO_DEBUG
 #define error_message(...) printf(__VA_ARGS__)
@@ -412,54 +428,92 @@ static int ioDeviceWrite(thermitIoSlot_t slot, uint8_t *buf, int16_t len)
   Call with:
     fileName  - Pointer to filename.
     mode - 1 = read, 2 = write
+    fileSize - pointer to file size value. For written files, this is the 
+                final size of the file. For read files, this returns the 
+                file size.
   Returns:
     0 on success.
     -1 on failure    
 */
-static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode)
+static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode, uint16_t *fileSize)
 {
   thermitIoSlot_t ret = -1;
-  int slot;
 
   /*call initialization for files. It is safe to call it anytime. It will 
     initialize only at first call and jump out when already initialized.*/
   initFiles();
 
-  slot = reserveFile();
-
-  if (fileSlotIsValid(slot))
+  if(fileName && fileSize)
   {
-    FILE *f;
-    switch (mode)
+    int slot;
+    slot = reserveFile();
+
+    if (fileSlotIsValid(slot))
     {
-      case 1: /* Read */
-        if (f = fopen(fileName, "rb"))
-        {
-          ret = 0;
-        }
-        break;
+      FILE *f;
+      switch (mode)
+      {
+        case 1: /* Read */
+          if (f = fopen(fileName, "rb"))
+          {
+            int32_t size;
+            ret = 0;
 
-      case 2: /* Write (create) */
-        if (f = fopen(fileName, "wb"))
-        {
-          ret = 0;
-        }
-        break;
+            /*find out the file size*/
+            fseek(f, 0, SEEK_END);
+            size = ftell(f);
+            fseek(f, 0, SEEK_SET);
 
-      default:
-        break;
+            *fileSize = (uint16_t)(size & 0xFFFF);
+          }
+          break;
+
+        case 2: /* Write (create) */
+          if (f = fopen(fileName, "wb"))
+          {
+            int result;
+            ret = 0;
+
+            result = fseek(f, (long)(*fileSize-1), SEEK_SET);
+            if (result == -1) 
+            {
+              fclose(f);
+              dbgPrintf("file stretching failed: seek");
+              ret = -1;
+            }
+
+            result = fwrite("", 1, 1, f);
+            if (result < 0) 
+            {
+              fclose(f);
+              dbgPrintf("file stretching failed: write");
+              ret = -1;
+            }
+            result = fseek(f, 0, SEEK_SET);
+            if (result == -1) 
+            {
+              fclose(f);
+              dbgPrintf("file stretching failed: rewind");
+              ret = -1;
+            }
+          }
+          break;
+
+        default:
+          break;
+      }
+
+      /*check success*/
+      if(ret == 0)
+      {
+        storageFiles[slot].handle = f;
+        ret = (thermitIoSlot_t)slot;
+      }    
+      else
+      {
+        releaseFile(slot);
+      }
     }
-
-    /*check success*/
-    if(ret == 0)
-    {
-      storageFiles[slot].handle = f;
-    }    
-    else
-    {
-      releaseFile(slot);
-    }
-    
   }
 
   return ret;

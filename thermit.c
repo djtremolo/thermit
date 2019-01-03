@@ -35,6 +35,9 @@ typedef struct
 #define THERMIT_PROGRESS_STATUS_BIT_INDEX(chunkNo)    ((chunkNo) % 8)
 typedef struct
 {
+  bool running;
+  uint8_t fileName[THERMIT_FILENAME_MAX];
+  uint16_t fileSize;
   uint8_t chunkStatus[THERMIT_PROGRESS_STATUS_LENGTH];     /*each bit represents one chunk: 1=dirty 0=done*/
   uint8_t firstDirtyChunk;
   uint8_t progressPercent;
@@ -929,12 +932,28 @@ static int waitForSyncResponse(thermitPrv_t *prv)
   return ret;
 }
 
+static void updateFileTransferStatus(thermitPrv_t *prv)
+{
+  if(prv)
+  {
+    thermitProgress_t *progress = &(prv->progress);
+    thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
+
+    if(!progress->running)
+    {
+
+    }
+  
+}
+
+
 static int sendDataMessage(thermitPrv_t *prv)
 {
   int ret = -1;
   if(prv)
   {
-    thermitPacket_t *pkt = &(prv->packet);  
+    thermitPacket_t *pkt = &(prv->packet);
+    thermitProgress_t *progress = &(prv->progress);
     
     pkt->fCode = THERMIT_FCODE_DATA_TRANSFER;
     pkt->recFeedback = 0;
@@ -944,6 +963,11 @@ static int sendDataMessage(thermitPrv_t *prv)
 
     if(framePrepare(prv) != NULL)
     {
+      if(progress->running)
+      {
+
+      }
+
       ret = frameFinalize(prv, 0);
     }
   }

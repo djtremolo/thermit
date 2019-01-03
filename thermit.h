@@ -95,10 +95,12 @@ typedef thermitIoSlot_t (*cbDeviceOpen_t)(uint8_t *devName, thermitIoMode_t mode
 typedef int (*cbDeviceClose_t)(thermitIoSlot_t slot);
 typedef int (*cbDeviceRead_t)(thermitIoSlot_t slot, uint8_t *buf, int16_t maxLen);
 typedef int (*cbDeviceWrite_t)(thermitIoSlot_t slot, uint8_t *buf, int16_t len);
-typedef thermitIoSlot_t (*cbFileOpen_t)(uint8_t *fileName, thermitIoMode_t mode);
+typedef thermitIoSlot_t (*cbFileOpen_t)(uint8_t *fileName, thermitIoMode_t mode, uint16_t *fileSize);
 typedef int (*cbFileClose_t)(thermitIoSlot_t slot);
 typedef int (*cbFileRead_t)(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxLen);
 typedef int (*cbFileWrite_t)(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len);
+typedef bool (*cbFileAvailableForSending_t)();
+
 typedef uint32_t (*cbSystemGetMilliseconds_t)(uint32_t *maxMs);
 typedef int (*cbSystemDebugPrintf_t)(const char *restrict format, ...);
 typedef uint16_t (*cbSystemCrc16_t)(const uint8_t *data, uint16_t size);
@@ -113,6 +115,7 @@ typedef struct
   cbFileClose_t fileClose;
   cbFileRead_t fileRead;
   cbFileWrite_t fileWrite;
+  cbFileAvailableForSending_t fileAvailableForSending;
   cbSystemGetMilliseconds_t sysGetMs;
   cbSystemDebugPrintf_t sysPrintf;
   cbSystemCrc16_t sysCrc16;
