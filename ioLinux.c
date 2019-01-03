@@ -25,7 +25,7 @@ static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode, uint1
 static int ioFileRead(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxLen);
 static int ioFileWrite(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len);
 static int ioFileClose(thermitIoSlot_t slot);
-static bool ioFileAvailableForSending();
+static bool ioFileAvailableForSending(uint8_t *fileNamePtr, uint16_t *sizePtr);
 
 static int dbgPrintf(const char *restrict format, ...);
 
@@ -58,6 +58,8 @@ typedef struct
 {
   bool active;
   FILE *handle;
+  uint8_t data[THERMIT_PAYLOAD_SIZE * THERMIT_CHUNK_COUNT_MAX];
+  uint16_t size;
 } ioFileObject_t;
 
 static ioDeviceObject_t communicationDevices[IOLINUX_DEVICES_MAX];
@@ -183,14 +185,19 @@ static void releaseFile(thermitIoSlot_t slot)
   }
 }
 
-static bool ioFileAvailableForSending()
+static bool ioFileAvailableForSending(uint8_t *fileNamePtr, uint16_t *sizePtr)
 {
   bool ret = false;
 
   /*WORKAROUND: check if the current file is open. If yes, return false, otherwise true*/
   if(!(storageFiles[0].active))
   {
-    ret = true;
+    if(fileNamePtr && sizePtr)
+    {
+      *sizePtr = 456;
+      strcpy(fileNamePtr, "f0");
+      ret = true;
+    }
   }
   return ret;
 }
@@ -427,7 +434,7 @@ static int ioDeviceWrite(thermitIoSlot_t slot, uint8_t *buf, int16_t len)
 /*
   Call with:
     fileName  - Pointer to filename.
-    mode - 1 = read, 2 = write
+    mode      - r/w access
     fileSize - pointer to file size value. For written files, this is the 
                 final size of the file. For read files, this returns the 
                 file size.
@@ -453,7 +460,7 @@ static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode, uint1
       FILE *f;
       switch (mode)
       {
-        case 1: /* Read */
+        case THERMIT_READ: /* Read */
           if (f = fopen(fileName, "rb"))
           {
             int32_t size;
@@ -468,7 +475,7 @@ static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode, uint1
           }
           break;
 
-        case 2: /* Write (create) */
+        case THERMIT_WRITE: /* Write (create) */
           if (f = fopen(fileName, "wb"))
           {
             int result;
@@ -507,6 +514,7 @@ static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode, uint1
       if(ret == 0)
       {
         storageFiles[slot].handle = f;
+        storageFiles[slot].size = *fileSize;
         ret = (thermitIoSlot_t)slot;
       }    
       else
@@ -529,9 +537,10 @@ static int ioFileRead(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16
 
     if (fseek(f, offset, SEEK_SET) >= 0)
     {
-      if (fread(buf, 1, maxLen, f) == maxLen)
+      size_t readBytes = fread(buf, 1, maxLen, f);
+      if (readBytes > 0)
       {
-        ret = 0;
+        ret = (int)readBytes;
       }
     }
   }

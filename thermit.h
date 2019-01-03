@@ -6,6 +6,7 @@
 #include "msgBuf.h"
 
 
+#define DIVISION_ROUNDED_UP(value, divider) ((value) % (divider) == 0 ? (value) / (divider) : ((value) / (divider)) +1)
 
 
 #define THERMIT_VERSION                   0
@@ -15,8 +16,7 @@
 #define THERMIT_MASTER_MODE_SUPPORT       true
 #define THERMIT_SLAVE_MODE_SUPPORT        true
 
-
-#define L2_MTU 128
+#define L2_MTU   (16+60)         //128
 #define L2_HEADER_SIZE 8
 #define L2_FOOTER_SIZE 0
 #define L2_PAYLOAD_SIZE (L2_MTU - L2_HEADER_SIZE - L2_FOOTER_SIZE)
@@ -26,7 +26,10 @@
 #define THERMIT_PAYLOAD_SIZE (L2_PAYLOAD_SIZE - THERMIT_HEADER_LENGTH - THERMIT_FOOTER_LENGTH)
 #define THERMIT_MSG_SIZE_MAX L2_PAYLOAD_SIZE
 
-#define THERMIT_CHUNK_COUNT_MAX     250   //when adjusting this, please take a look at the THERMIT_FEEDBACK definitions
+
+#define THERMIT_MAX_REQUIRED_FILE_SIZE      512
+
+#define THERMIT_CHUNK_COUNT_MAX     250//(DIVISION_ROUNDED_UP(THERMIT_MAX_REQUIRED_FILE_SIZE, THERMIT_PAYLOAD_SIZE))   //when adjusting this, please take a look at the THERMIT_FEEDBACK definitions
 
 #define THERMIT_FCODE_OFFSET 0
 #define THERMIT_REC_FILEID_OFFSET 1
@@ -41,19 +44,28 @@
 #define THERMIT_FEEDBACK_FILE_IS_READY 0xFF
 #define THERMIT_FEEDBACK_FILE_SO_FAR_OK 0xFE
 
+#define THERMIT_FILEID_MAX    255
+
+
 typedef enum
 {
   THERMIT_FCODE_SYNC_PROPOSAL = 1, //this is the first frame sent by master. It includes the best set of parameters that the master can handle
   THERMIT_FCODE_SYNC_RESPONSE = 2, //this is the response from the slave. It includes the best compromise of parameter set that is supported by both ends.
   THERMIT_FCODE_SYNC_ACK = 3,      //master acknowledges the parameter set
   THERMIT_FCODE_DATA_TRANSFER = 4, //data transfer frame. If file is to be sent, this frame contains one chunk. The frame can also be sent as feedback frame with empty data.
+  THERMIT_FCODE_NEW_FILE_START = 5,//contains file info about next file to be sent
+  THERMIT_FCODE_WRITE_TERMINATED_FORCEFULLY = 0xFE, //sent if wrong file/illegal chunk is received
   THERMIT_FCODE_OUT_OF_SYNC = 0xFF //error frame. Can be sent if the incoming frame is not supported in active protocol state.
 } thermitFCode_t;
 
 
 
 typedef int thermitIoSlot_t;
-typedef int thermitIoMode_t;
+typedef enum 
+{
+  THERMIT_READ,
+  THERMIT_WRITE
+} thermitIoMode_t;
 
 
 typedef struct
@@ -99,7 +111,7 @@ typedef thermitIoSlot_t (*cbFileOpen_t)(uint8_t *fileName, thermitIoMode_t mode,
 typedef int (*cbFileClose_t)(thermitIoSlot_t slot);
 typedef int (*cbFileRead_t)(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t maxLen);
 typedef int (*cbFileWrite_t)(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16_t len);
-typedef bool (*cbFileAvailableForSending_t)();
+typedef bool (*cbFileAvailableForSending_t)(uint8_t *fileNamePtr, uint16_t *sizePtr);
 
 typedef uint32_t (*cbSystemGetMilliseconds_t)(uint32_t *maxMs);
 typedef int (*cbSystemDebugPrintf_t)(const char *restrict format, ...);

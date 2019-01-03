@@ -6,8 +6,7 @@
 
 #define THERMIT_INSTANCES_MAX 1
 
-
-#define DIVISION_ROUNDED_UP(value, divider) ((value) % (divider) == 0 ? (value) / (divider) : ((value) / (divider)) +1)
+#define DIRTY_CHUNK_NONE    0xFF
 
 typedef struct
 {
@@ -36,15 +35,19 @@ typedef struct
 typedef struct
 {
   bool running;
-  uint8_t fileName[THERMIT_FILENAME_MAX];
   uint16_t fileSize;
+  thermitIoSlot_t fileHandle;
+  uint8_t fileId;
+  uint8_t chunkNo;
+  uint8_t fileName[THERMIT_FILENAME_MAX+1];
+
   uint8_t chunkStatus[THERMIT_PROGRESS_STATUS_LENGTH];     /*each bit represents one chunk: 1=dirty 0=done*/
-  uint8_t firstDirtyChunk;
   uint8_t progressPercent;
   uint16_t progressBytesDone;
   uint16_t oneChunkPercentScaled100;   // this value represents how many percents one chunk is of the whole file, multiplied by 100
   uint8_t numberOfChunksNeeded;
 } thermitProgress_t;
+
 
 
 typedef struct
@@ -60,8 +63,8 @@ typedef struct
   thermitState_t state;
 
   thermitIoSlot_t comLink;
-  thermitIoSlot_t inFile;
-  thermitIoSlot_t outFile;
+
+  uint8_t nextOutgoingFileId;
 
   /*store parsed packet after receiving*/
   thermitPacket_t packet;
@@ -69,9 +72,18 @@ typedef struct
   bool proposalReceived;
   bool ackReceived;
 
+  uint8_t receivedFeedback;
+  uint8_t sendFeedback;
+  uint8_t expectedFileId;
+  uint8_t firstDirtyChunk;
+
+  bool sendWTF;
+
   bool isMaster;
 
-  thermitProgress_t progress;
+  thermitProgress_t txProgress;
+  thermitProgress_t rxProgress;
+
   thermitParameters_t parameters;
   thermitDiagnostics_t diagnostics;
 } thermitPrv_t;
@@ -83,12 +95,12 @@ static int findBestCommonParameterSet(thermitParameters_t *p1, thermitParameters
 static void debugDumpParameters(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix);
 static void debugDumpFrame(thermitPrv_t *prv, uint8_t *buf, uint8_t *prefix);
 static void debugDumpState(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix);
-static void debugDumpProgress(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix);
+static void debugDumpProgress(thermitPrv_t *prv, thermitProgress_t *prog, uint8_t *prefix, uint8_t *postfix);
 
-static int progressInitialize(thermitPrv_t *prv, uint16_t fileSize);
-static int progressSetChunkStatus(thermitPrv_t *prv, uint8_t chunkNo, bool done);
-static bool progressGetChunkIsDone(thermitPrv_t *prv, uint8_t chunkNo);
-static bool progressGetFirstDirty(thermitPrv_t *prv, uint8_t *dirtyChunk);
+static int progressInitialize(thermitPrv_t *prv, thermitProgress_t *prog, uint16_t fileSize);
+static int progressSetChunkStatus(thermitPrv_t *prv, thermitProgress_t *prog, uint8_t chunkNo, bool done);
+static bool progressGetChunkIsDone(thermitPrv_t *prv, thermitProgress_t *prog, uint8_t chunkNo);
+static bool progressGetFirstDirty(thermitPrv_t *prv, thermitProgress_t *prog, uint8_t *dirtyChunk);
 
 
 static void initializeState(thermitPrv_t *prv);
@@ -223,7 +235,7 @@ thermit_t *thermitNew(uint8_t *linkName, bool isMaster, thermitTargetAdaptationI
 
     if (p)
     {
-      DEBUG_INFO(p, "thermitNew()\r\n");
+      DEBUG_INFO(p, "thermitNew(): sizeof(thermitPrv_t)=%d\r\n", sizeof(thermitPrv_t));
       //don't allow creating modes that are not supported
       #if !THERMIT_MASTER_MODE_SUPPORT
       if(isMaster)
@@ -291,31 +303,30 @@ void thermitDelete(thermit_t *inst)
 }
 
 
-static int progressInitialize(thermitPrv_t *prv, uint16_t fileSize)
+static int progressInitialize(thermitPrv_t *prv, thermitProgress_t *progress, uint16_t fileSize)
 {
   int ret = -1;
 
-  if(prv && (fileSize <= prv->parameters.maxFileSize) && (fileSize > 0))
+  if(prv && progress && (fileSize <= prv->parameters.maxFileSize) && (fileSize > 0))
   {
-    thermitProgress_t *p = &(prv->progress);
     uint8_t fullBytes;
     uint8_t extraBits;
     uint8_t byteIdx, bitIdx;
     uint8_t extraByteValue = 0;
 
-    memset(p, 0, sizeof(thermitProgress_t));
+    memset(progress, 0, sizeof(thermitProgress_t));
 
     /*remember number of chunks needed for this file*/
-    p->numberOfChunksNeeded = DIVISION_ROUNDED_UP(fileSize, prv->parameters.chunkSize);
+    progress->numberOfChunksNeeded = DIVISION_ROUNDED_UP(fileSize, prv->parameters.chunkSize);
 
     /*preparation*/
-    fullBytes = (p->numberOfChunksNeeded / 8);
-    extraBits = (p->numberOfChunksNeeded % 8);
+    fullBytes = (progress->numberOfChunksNeeded / 8);
+    extraBits = (progress->numberOfChunksNeeded % 8);
 
     /*mark all used chunks dirty. First, go through full bytes*/
     for(byteIdx = 0; byteIdx < fullBytes; byteIdx++)
     {
-      p->chunkStatus[byteIdx] = 0xFF; /*all bits marked dirty*/
+      progress->chunkStatus[byteIdx] = 0xFF; /*all bits marked dirty*/
     }
 
     /*then, only the used bits in the highest byte will be marked dirty*/
@@ -323,29 +334,28 @@ static int progressInitialize(thermitPrv_t *prv, uint16_t fileSize)
     {
       extraByteValue |= (1 << bitIdx);
     }
-    p->chunkStatus[fullBytes] = extraByteValue;
+    progress->chunkStatus[fullBytes] = extraByteValue;
 
     /*calculate how many percents of the whole file is transferred in one chunk. Value 1234 means 12.34%*/
-    p->oneChunkPercentScaled100 = ((100 * 100) / p->numberOfChunksNeeded);
+    progress->oneChunkPercentScaled100 = ((100 * 100) / progress->numberOfChunksNeeded);
   }
 }
 
-static int progressSetChunkStatus(thermitPrv_t *prv, uint8_t chunkNo, bool done)
+static int progressSetChunkStatus(thermitPrv_t *prv, thermitProgress_t *progress, uint8_t chunkNo, bool done)
 {
   int ret = -1;
-  if(prv && (chunkNo < prv->progress.numberOfChunksNeeded))
+  if(prv && progress && (chunkNo < progress->numberOfChunksNeeded))
   {
-    thermitProgress_t *p = &(prv->progress);
     uint8_t byteIdx = THERMIT_PROGRESS_STATUS_BYTE_INDEX(chunkNo);
     uint8_t bitIdx = THERMIT_PROGRESS_STATUS_BIT_INDEX(chunkNo);
 
     if(done)
     {
-      p->chunkStatus[byteIdx] &= ~(1 << bitIdx);  /*clear bit -> done*/
+      progress->chunkStatus[byteIdx] &= ~(1 << bitIdx);  /*clear bit -> done*/
     }
     else
     {
-      p->chunkStatus[byteIdx] |= (1 << bitIdx);  /*set bit -> dirty*/
+      progress->chunkStatus[byteIdx] |= (1 << bitIdx);  /*set bit -> dirty*/
     } 
 
     DEBUG_INFO(prv, "chunk %d = %s\r\n", chunkNo, done?"OK":"DIRTY");
@@ -355,16 +365,15 @@ static int progressSetChunkStatus(thermitPrv_t *prv, uint8_t chunkNo, bool done)
   return ret;
 }
 
-static bool progressGetChunkIsDone(thermitPrv_t *prv, uint8_t chunkNo)
+static bool progressGetChunkIsDone(thermitPrv_t *prv, thermitProgress_t *progress, uint8_t chunkNo)
 {
   bool chunkIsDone = false;
-  if(prv && (chunkNo < prv->progress.numberOfChunksNeeded))
+  if(prv && progress && (chunkNo < progress->numberOfChunksNeeded))
   {
-    thermitProgress_t *p = &(prv->progress);
     uint8_t byteIdx = THERMIT_PROGRESS_STATUS_BYTE_INDEX(chunkNo);
     uint8_t bitIdx = THERMIT_PROGRESS_STATUS_BIT_INDEX(chunkNo);
 
-    if((p->chunkStatus[byteIdx] & (1 << bitIdx)) == 0)
+    if((progress->chunkStatus[byteIdx] & (1 << bitIdx)) == 0)
     {
       chunkIsDone = true;
     } 
@@ -372,20 +381,19 @@ static bool progressGetChunkIsDone(thermitPrv_t *prv, uint8_t chunkNo)
   return chunkIsDone;
 }
 
-static bool progressGetFirstDirty(thermitPrv_t *prv, uint8_t *dirtyChunk)
+static bool progressGetFirstDirty(thermitPrv_t *prv, thermitProgress_t *progress, uint8_t *dirtyChunk)
 {
   bool ret = false;
 
-  if(prv && dirtyChunk)
+  if(prv && progress && dirtyChunk)
   {
-    thermitProgress_t *p = &(prv->progress);
     uint8_t bitIdx = 0;
     uint8_t byteIdx = 0;
-    uint8_t chunksLeft = p->numberOfChunksNeeded;
+    uint8_t chunksLeft = progress->numberOfChunksNeeded;
 
     while(chunksLeft--)
     {
-      uint8_t walkedByte = p->chunkStatus[byteIdx];
+      uint8_t walkedByte = progress->chunkStatus[byteIdx];
 
       if(walkedByte == 0)
       {
@@ -432,15 +440,14 @@ static bool progressGetFirstDirty(thermitPrv_t *prv, uint8_t *dirtyChunk)
 
 #if THERMIT_DEBUG >= THERMIT_DBG_LVL_INFO
 #define PROGRESS_DUMP_LINE_LENGTH   40
-static void debugDumpProgress(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix)
+static void debugDumpProgress(thermitPrv_t *prv, thermitProgress_t *prog, uint8_t *prefix, uint8_t *postfix)
 {
   uint8_t i;
   uint8_t byteIdx = 0;
   uint8_t bitIdx = 0;
 
-  if(prv)
+  if(prv && prog)
   {
-    thermitProgress_t *prog = &(prv->progress);
     uint8_t linesNeeded = DIVISION_ROUNDED_UP(prog->numberOfChunksNeeded, PROGRESS_DUMP_LINE_LENGTH);
     uint8_t totalChunksToBeReported = prog->numberOfChunksNeeded;
     bool finalRound = false;
@@ -495,9 +502,10 @@ static void debugDumpProgress(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postf
   }
 }
 #else
-static void debugDumpProgress(thermitPrv_t *prv, uint8_t *prefix, uint8_t *postfix)
+static void debugDumpProgress(thermitPrv_t *prv, thermitProgress_t *prog, uint8_t *prefix, uint8_t *postfix)
 {
   (void)prv;
+  (void)prog;
   (void)prefix;
   (void)postfix;
 }
@@ -690,8 +698,31 @@ static uint8_t* framePrepare(thermitPrv_t *prv)
 
   if(prv)
   {
+    thermitProgress_t *rx = &(prv->rxProgress);
+    thermitProgress_t *tx = &(prv->txProgress);
     thermitPacket_t *pkt = &(prv->packet);
     p = pkt->rawBuf;
+
+    pkt->recFeedback = prv->sendFeedback;
+
+    if(rx->running)
+    {
+      pkt->recFileId = rx->fileId;
+    }
+    else
+    {
+      pkt->recFileId = 0;
+    }
+
+    if(tx->running)
+    {
+      pkt->sndFileId = tx->fileId;
+    }
+    else
+    {
+      pkt->sndFileId = 0;
+    }
+
 
     msgPutU8(&p, pkt->fCode);
     msgPutU8(&p, pkt->recFileId);
@@ -932,46 +963,338 @@ static int waitForSyncResponse(thermitPrv_t *prv)
   return ret;
 }
 
-static void updateFileTransferStatus(thermitPrv_t *prv)
+
+static uint8_t fillFileInfoMessage(uint8_t *plBuf, uint8_t *fileName, uint16_t fileSize)
 {
-  if(prv)
+  uint8_t bytesWritten = 0;
+
+  if(plBuf && fileName)
   {
-    thermitProgress_t *progress = &(prv->progress);
-    thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
+    uint8_t *fnPtr = fileName;
+    uint8_t *start = plBuf;
+    uint8_t *lenBytePtr;
+    uint8_t fnLen = 0;
+    uint8_t fnBytesMax = THERMIT_FILENAME_MAX;
 
-    if(!progress->running)
+    /*
+    uint16_t size
+    uint8_t fileNameLen
+    uint8_t fileName[fileNameLen]    
+    */
+    msgPutU16(&plBuf, fileSize);
+    lenBytePtr = plBuf++; /*store this as we need to update it later*/
+    while(fnBytesMax--)
     {
-
+      if(*fnPtr == 0)
+      {
+        break;
+      }
+      msgPutU8(&plBuf, *(fnPtr++));
+      fnLen++;
     }
-  
+    msgPutU8(&plBuf, 0);    //terminate
+
+    /*update file name length*/
+    msgPutU8(&lenBytePtr, fnLen+1);
+
+    bytesWritten = msgLen(start, plBuf);
+  }
+  return bytesWritten;
 }
 
 
-static int sendDataMessage(thermitPrv_t *prv)
+typedef enum
 {
-  int ret = -1;
+  THERMIT_OUT_NOTHING,
+  THERMIT_OUT_KEEP_ALIVE,
+  THERMIT_OUT_FILE_INFO,
+  THERMIT_OUT_CHUNK,
+  THERMIT_OUT_EMPTY_DATA,
+  THERMIT_OUT_WRITE_TERMINATED_FORCEFULLY
+} outMsgClass_t;
+
+
+static outMsgClass_t updateOutGoingState(thermitPrv_t *prv)
+{
+  outMsgClass_t whatToSend = THERMIT_OUT_NOTHING;
+
   if(prv)
   {
-    thermitPacket_t *pkt = &(prv->packet);
-    thermitProgress_t *progress = &(prv->progress);
-    
-    pkt->fCode = THERMIT_FCODE_DATA_TRANSFER;
-    pkt->recFeedback = 0;
-    pkt->recFileId = 0;
-    pkt->sndChunkNo = 0;
-    pkt->sndFileId = 0;
+    thermitProgress_t *txProgress = &(prv->txProgress);
+    thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
 
-    if(framePrepare(prv) != NULL)
+    /*send error message in case of recent failure*/
+    if(prv->sendWTF)
     {
-      if(progress->running)
+      prv->sendWTF = false;
+
+      return THERMIT_OUT_WRITE_TERMINATED_FORCEFULLY;
+    }
+
+    /*check if outgoing file transfer is currently active. If not, check
+    if a new file is available for sending. If yes, open it and start sending.*/
+    if(txProgress->running)
+    {
+      /*send next chunk*/
+      uint8_t nextChunk = txProgress->chunkNo + 1;
+      if(nextChunk < txProgress->numberOfChunksNeeded)
       {
-
+        txProgress->chunkNo = nextChunk;
+        whatToSend = THERMIT_OUT_CHUNK;
       }
+      else
+      {
+        /*TODO: fetch first dirty chunk and resend it*/
+        switch(prv->receivedFeedback)
+        {
+          case THERMIT_FEEDBACK_FILE_IS_READY:
+            /*File is done! Close file.*/
+            tgt->fileClose(txProgress->fileHandle);
+            txProgress->running = false;    /*stop*/
+            break;
 
-      ret = frameFinalize(prv, 0);
+          case THERMIT_FEEDBACK_FILE_SO_FAR_OK:
+            /*no action*/
+            break;
+
+          default:
+            txProgress->chunkNo = prv->receivedFeedback;
+            whatToSend = THERMIT_OUT_CHUNK;
+            break;
+        }
+      }
+    }
+    else
+    {
+      /*open new file for sending if available*/
+      uint16_t fileSize;
+      uint8_t fName[THERMIT_FILENAME_MAX+1];
+
+      if(tgt->fileAvailableForSending(fName, &fileSize))
+      {
+        thermitIoSlot_t fileHandle;
+
+        fileHandle = tgt->fileOpen(fName, THERMIT_READ, &fileSize);
+        if(fileHandle >= 0)
+        {
+          thermitProgress_t *txProgress = &(prv->txProgress);
+
+          if(progressInitialize(prv, txProgress, fileSize) >= 0)
+          {
+            uint8_t *plBuf;
+            uint16_t fileInfoLen;
+            thermitPacket_t *pkt = &(prv->packet);
+
+            DEBUG_INFO(prv, "starting new file transfer\r\n");
+
+            txProgress->running = true;
+            txProgress->fileSize = fileSize;
+            txProgress->fileHandle = fileHandle;
+            txProgress->fileId = prv->nextOutgoingFileId;
+            txProgress->chunkNo = 0;
+            strncpy(txProgress->fileName, fName, THERMIT_FILENAME_MAX);   /*todo optimize*/
+            prv->nextOutgoingFileId = ((prv->nextOutgoingFileId + 1) % THERMIT_FILEID_MAX);
+
+            whatToSend = THERMIT_OUT_FILE_INFO;
+          }
+          else
+          {
+            DEBUG_ERR(prv, "file opening for read failed\r\n");
+            tgt->fileClose(fileHandle);
+          }
+        }
+      }
+      else
+      {
+        DEBUG_INFO(prv, "waiting for new file to be sent\r\n");
+      }
     }
   }
 
+  if(whatToSend == THERMIT_OUT_NOTHING)
+  {
+    DEBUG_INFO(prv, "nothing to send\r\n");
+  }
+
+  return whatToSend;
+}
+
+
+
+
+
+#define THERMIT_FILE_OFFSET(chunkNo, prv)   ((chunkNo) * ((prv)->parameters.chunkSize))
+#define THERMIT_CHUNK_LENGTH(chunkNo, prv)  ((chunkNo) == (((prv)->txProgress.numberOfChunksNeeded)-1) ? ((prv)->txProgress.fileSize % ((prv)->parameters.chunkSize)) : (prv)->parameters.chunkSize)
+static int sendDataMessage(thermitPrv_t *prv)
+{
+  int ret = -1;
+
+  if(prv)
+  {
+    thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
+    thermitPacket_t *pkt = &(prv->packet);
+    thermitProgress_t *txProgress = &(prv->txProgress);
+    thermitProgress_t *rxProgress = &(prv->rxProgress);
+    uint8_t *plPtr;
+    uint8_t plLen;
+    uint16_t offset;
+    uint16_t length;
+    uint16_t readLen;
+    int bytesRead;
+    
+    pkt->recFeedback = 0;
+    pkt->recFileId = rxProgress->fileId;
+    pkt->sndChunkNo = txProgress->chunkNo;
+    pkt->sndFileId = txProgress->fileId;
+
+    switch(updateOutGoingState(prv))
+    {
+      case THERMIT_OUT_CHUNK:
+        offset = THERMIT_FILE_OFFSET(txProgress->chunkNo, prv);
+        length = THERMIT_CHUNK_LENGTH(txProgress->chunkNo, prv);
+
+        pkt->fCode = THERMIT_FCODE_DATA_TRANSFER;
+        plPtr = framePrepare(prv);
+        plLen = 0;
+
+        bytesRead = tgt->fileRead(txProgress->fileHandle, offset, plPtr, length);
+        if(bytesRead >= 0)
+        {
+          if((uint16_t)bytesRead == length)
+          {
+            plLen = length;
+            ret = frameFinalize(prv, plLen);
+          }
+          else
+          {
+            DEBUG_ERR(prv, "file read failed: expected %d bytes, got %d.\r\n", length, readLen);
+          }
+        }
+        else
+        {
+          DEBUG_ERR(prv, "file read failed: negative return value.\r\n");
+        }
+        break;
+
+      case THERMIT_OUT_FILE_INFO:
+        pkt->fCode = THERMIT_FCODE_NEW_FILE_START;
+        plPtr = framePrepare(prv);
+        plLen = fillFileInfoMessage(plPtr, txProgress->fileName, txProgress->fileSize);
+        ret = frameFinalize(prv, plLen);
+        break;
+
+      case THERMIT_OUT_EMPTY_DATA:
+        break;
+
+      case THERMIT_OUT_WRITE_TERMINATED_FORCEFULLY:
+        pkt->fCode = THERMIT_FCODE_WRITE_TERMINATED_FORCEFULLY;
+
+        (void)framePrepare(prv);
+        ret = frameFinalize(prv, 0);
+        break;
+
+      case THERMIT_OUT_KEEP_ALIVE:
+        break;
+
+      case THERMIT_OUT_NOTHING:
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  return ret;
+}
+
+
+static int parseFileInfoMessage(thermitPrv_t *prv, uint8_t *fileName, uint8_t fileNameMaxLen, uint16_t *fileSizePtr)
+{
+  int ret = -1;
+
+  if(prv && fileName && fileSizePtr)
+  {
+    thermitPacket_t *pkt = &(prv->packet);
+
+    uint8_t *p = pkt->payloadPtr;
+    uint8_t len = pkt->payloadLen;
+
+    /*
+    uint16_t size
+    uint8_t fileNameLen
+    uint8_t fileName[fileNameLen]    
+    */
+
+
+    if(len > 3)
+    {
+      uint8_t fnLen;
+      uint8_t *fnPtr = fileName;
+
+      *fileSizePtr = msgGetU16(&p);
+      fnLen = msgGetU8(&p);
+      fnLen = ((fnLen < fileNameMaxLen) ? fnLen : fileNameMaxLen-1);
+
+      while(fnLen--)
+      {
+        if(*fnPtr == 0)
+        {
+          break;
+        }
+        *(fnPtr++) = msgGetU8(&p);
+      }
+
+      *fnPtr = 0;
+
+      DEBUG_INFO(prv, "file info: name='%s', size=%d\r\n", fileName, *fileSizePtr);
+
+      ret = 0;
+    }
+  }
+  return ret;
+}
+
+static int receiveDataMessage(thermitPrv_t *prv)
+{
+  int ret = -1;
+
+  if(prv)
+  {
+    thermitPacket_t *pkt = &(prv->packet);
+    thermitProgress_t *rxProgress = &(prv->rxProgress);
+
+    prv->receivedFeedback = pkt->recFeedback;
+    switch(prv->receivedFeedback)
+    {
+      case THERMIT_FEEDBACK_FILE_IS_READY:
+        if(pkt->recFileId == prv->expectedFileId)
+        {
+          rxProgress->running = false;
+          DEBUG_INFO(prv, "file receiving finished successfully\r\n");
+          ret = 0;
+        }
+        break;
+
+      case THERMIT_FEEDBACK_FILE_SO_FAR_OK:
+        /*no action*/
+        if(pkt->recFileId == prv->expectedFileId)
+        {
+          prv->firstDirtyChunk = DIRTY_CHUNK_NONE;
+          ret = 0;
+        }
+        break;
+
+      default:
+        if(pkt->recFileId == prv->expectedFileId)
+        {
+          prv->firstDirtyChunk = prv->receivedFeedback;
+          ret = 0;
+        }
+        break;
+    }
+   
+    ret = 0;
+  }
   return ret;
 }
 
@@ -980,11 +1303,36 @@ static int waitForDataMessage(thermitPrv_t *prv)
 {
   int ret = -1;
   thermitPacket_t *pkt = &(prv->packet);
+  thermitProgress_t *rxProgress = &(prv->rxProgress);
 
   switch (pkt->fCode)
   {
   case THERMIT_FCODE_DATA_TRANSFER:
-    ret = 0;
+    ret = receiveDataMessage(prv);
+    break;
+
+  case THERMIT_FCODE_NEW_FILE_START:
+    if(!rxProgress->running)
+    {
+      uint8_t fName[THERMIT_FILENAME_MAX+1];
+      uint16_t fileSize;
+
+      if(parseFileInfoMessage(prv, fName, THERMIT_FILENAME_MAX, &fileSize) == 0)
+      {
+        ret = progressInitialize(prv, rxProgress, fileSize);
+        strncpy(rxProgress->fileName, fName, THERMIT_FILENAME_MAX);
+      }
+      else
+      {
+        /*illegal format in incoming file info frame, send "write terminated forcefully" frame.*/
+        prv->sendWTF = true;
+      }
+    }
+    else
+    {
+      /*cannot accept new file info during transfer, send "write terminated forcefully" frame.*/
+      prv->sendWTF = true;
+    }
     break;
 
   default:
@@ -1204,7 +1552,7 @@ static int sendSyncResponse(thermitPrv_t *prv)
 }
 
 
-static int sendOutOfSyncSync(thermitPrv_t *prv)
+static int sendOutOfSync(thermitPrv_t *prv)
 {
   int ret = -1;
   if(prv)
@@ -1321,7 +1669,7 @@ static int slaveTx(thermitPrv_t *prv)
       break;
 
     case THERMIT_OUT_OF_SYNC:
-      ret = sendOutOfSyncSync(prv);
+      ret = sendOutOfSync(prv);
       initializeState(prv);
       break;
 
