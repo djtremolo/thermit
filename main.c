@@ -2,7 +2,7 @@
 #include "thermit.h"
 #include <time.h>
 #include <unistd.h>
-#include "ioLinux.h"
+#include "ioDummy.h"
 
 
 
@@ -28,7 +28,7 @@ int main(int argc, char* argv[])
 
     if(linkName)
     {
-        thermit_t *t = thermitNew(linkName, masterRole, &ioLinuxTargetIf);
+        thermit_t *t = thermitNew(linkName, masterRole, &ioDummyTargetIf);
 
         if(t)
         {

@@ -1,4 +1,4 @@
-OBJS= main.o thermit.o crc.o streamFraming.o ioLinux.o msgBuf.o
+OBJS= main.o thermit.o crc.o streamFraming.o ioDummy.o msgBuf.o
 
 THERMIT = makewhat
 ALL = $(THERMIT)
@@ -15,6 +15,7 @@ streamFraming.o: streamFraming.c
 crc.o: crc.c
 msgBuf.o: msgBuf.c
 ioLinux.o: ioLinux.c
+ioDummy.o: ioDummy.c
 
 #Targets
 
