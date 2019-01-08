@@ -1053,10 +1053,6 @@ static outMsgClass_t updateOutGoingState(thermitPrv_t *prv)
             txProgress->running = false;    /*stop*/
             break;
 
-          case THERMIT_FEEDBACK_FILE_SO_FAR_OK:
-            /*no action*/
-            break;
-
           default:
             txProgress->chunkNo = prv->receivedFeedback;
             whatToSend = THERMIT_OUT_CHUNK;
@@ -1120,7 +1116,22 @@ static outMsgClass_t updateOutGoingState(thermitPrv_t *prv)
 }
 
 
+uint8_t getFeedback(thermitPrv_t *prv)
+{
+  uint8_t fb = THERMIT_FEEDBACK_FILE_IS_READY;
 
+  if(prv)
+  {
+    thermitProgress_t *rxProgress = &(prv->rxProgress);
+    uint8_t dirtyChunk = 0;
+    if(progressGetFirstDirty(prv, rxProgress, &dirtyChunk))
+    {
+      fb = dirtyChunk;
+    }
+  }
+
+  return fb;
+}
 
 
 #define THERMIT_FILE_OFFSET(chunkNo, prv)   ((chunkNo) * ((prv)->parameters.chunkSize))
@@ -1142,7 +1153,7 @@ static int sendDataMessage(thermitPrv_t *prv)
     uint16_t readLen;
     int bytesRead;
     
-    pkt->recFeedback = 0;
+    pkt->recFeedback = getFeedback(prv);
     pkt->recFileId = rxProgress->fileId;
     pkt->sndChunkNo = txProgress->chunkNo;
     pkt->sndFileId = txProgress->fileId;
@@ -1271,15 +1282,8 @@ static int receiveDataMessage(thermitPrv_t *prv)
         {
           rxProgress->running = false;
           DEBUG_INFO(prv, "file receiving finished successfully\r\n");
-          ret = 0;
-        }
-        break;
 
-      case THERMIT_FEEDBACK_FILE_SO_FAR_OK:
-        /*no action*/
-        if(pkt->recFileId == prv->expectedFileId)
-        {
-          prv->firstDirtyChunk = DIRTY_CHUNK_NONE;
+          DEBUG_ERR(prv, "file received, file IO not yet implemented\r\n");
           ret = 0;
         }
         break;
@@ -1288,6 +1292,11 @@ static int receiveDataMessage(thermitPrv_t *prv)
         if(pkt->recFileId == prv->expectedFileId)
         {
           prv->firstDirtyChunk = prv->receivedFeedback;
+
+          progressSetChunkStatus(prv, rxProgress, prv->receivedFeedback, true);
+          
+          /*store chunk*/
+          DEBUG_ERR(prv, "chunk %d received, storing not yet implemented\r\n", prv->receivedFeedback);
           ret = 0;
         }
         break;
