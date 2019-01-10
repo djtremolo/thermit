@@ -15,6 +15,8 @@
 #define IOLINUX_FILES_MAX 1
 
 
+#define IOLINUX_USE_DUMMY_FILE  true
+
 
 static uint32_t millis(uint32_t *max);
 static thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode);
@@ -290,6 +292,9 @@ static thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode)
     if (devName != NULL)
     {
       int fd = open(devName, O_RDWR | O_NOCTTY | O_SYNC);
+      uint8_t tmpByte;
+      uint32_t bytesFlushed=0;
+
       if (fd >= 0)
       {
         set_interface_attribs(fd, B38400, 0); // set speed to 115,200 bps, 8n1 (no parity)
@@ -298,6 +303,12 @@ static thermitIoSlot_t ioDeviceOpen(uint8_t *devName, thermitIoMode_t mode)
         communicationDevices[slot].handle = fd;
 
         dbgPrintf("device '%s' opened\r\n", devName);
+
+        /*flush*/
+        while(read(fd, &tmpByte, sizeof(tmpByte)) == 1)
+          bytesFlushed++; /*drop*/
+
+        dbgPrintf("flushed %ld bytes\r\n", bytesFlushed);
 
         ret = slot;
       }
@@ -461,6 +472,20 @@ static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode, uint1
       switch (mode)
       {
         case THERMIT_READ: /* Read */
+#if IOLINUX_USE_DUMMY_FILE
+          { //for scope of the local variable
+            uint16_t b;
+
+            f = NULL;
+            *fileSize = 345;
+
+            for(b = 0; b < *fileSize; b++)
+            {
+              storageFiles[slot].data[b] = b / 60;
+            }
+            ret = 0;
+          }
+#else
           if (f = fopen(fileName, "rb"))
           {
             int32_t size;
@@ -473,9 +498,15 @@ static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode, uint1
 
             *fileSize = (uint16_t)(size & 0xFFFF);
           }
+#endif
           break;
 
         case THERMIT_WRITE: /* Write (create) */
+
+#if IOLINUX_USE_DUMMY_FILE
+          f = NULL;
+          ret = 0;
+#else
           if (f = fopen(fileName, "wb"))
           {
             int result;
@@ -504,6 +535,7 @@ static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode, uint1
               ret = -1;
             }
           }
+#endif
           break;
 
         default:
@@ -533,6 +565,23 @@ static int ioFileRead(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16
 
   if (fileSlotIsValid(slot))
   {
+#if IOLINUX_USE_DUMMY_FILE
+    uint16_t i;
+    int readBytes = 0;
+
+    for(i = 0; i < maxLen; i++)
+    {
+      uint16_t bIdx = offset + i;
+
+      if(bIdx >= storageFiles[slot].size)
+        break;
+
+      *(buf++) = storageFiles[slot].data[bIdx];
+      readBytes++;
+    }
+
+    ret = readBytes;
+#else
     FILE *f = storageFiles[slot].handle;
 
     if (fseek(f, offset, SEEK_SET) >= 0)
@@ -543,6 +592,7 @@ static int ioFileRead(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int16
         ret = (int)readBytes;
       }
     }
+#endif
   }
 
   return ret;
@@ -554,6 +604,10 @@ static int ioFileWrite(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int1
 
   if (fileSlotIsValid(slot))
   {
+#if IOLINUX_USE_DUMMY_FILE
+    /*going to dev/null*/
+    ret = 0;
+#else
     FILE *f = storageFiles[slot].handle;
     if (fseek(f, offset, SEEK_SET) >= 0)
     {
@@ -562,6 +616,7 @@ static int ioFileWrite(thermitIoSlot_t slot, uint16_t offset, uint8_t *buf, int1
         ret = 0;
       }
     }
+#endif
   }
 
   return ret;
@@ -573,9 +628,14 @@ static int ioFileClose(thermitIoSlot_t slot)
 
   if (fileSlotIsValid(slot))
   {
+#if IOLINUX_USE_DUMMY_FILE
+    releaseFile(slot);
+    ret = 0;
+#else
     fclose(storageFiles[slot].handle);
     releaseFile(slot);
     ret = 0;
+#endif
   }
 
   return ret;

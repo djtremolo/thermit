@@ -40,8 +40,12 @@ int main(int argc, char* argv[])
             
             while(!end)
             {
+                printf("%s>", (masterRole?"MST":"SLV"));
+                fflush(stdout);
+                (void)getchar();
+
                 t->m->step(t);
-                sleep(1);
+                //sleep(1);
             }
 
             thermitDelete(t);
