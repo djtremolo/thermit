@@ -4,6 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
         {
             "name": "launch as Master (tnt0)",
             "type": "cppdbg",
@@ -43,6 +44,47 @@
                     "ignoreFailures": true
                 }
             ]
+        },
+        {
+            "name": "launch as Master (tnt1)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/thermit",
+            "args": ["/dev/tnt1", "m"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "make",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "launch as Slave (tnt1)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/thermit",
+            "args": ["/dev/tnt1", "s"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "make",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
         }
+
     ]
 }
