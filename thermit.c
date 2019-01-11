@@ -55,6 +55,7 @@ typedef struct
   uint16_t progressBytesDone;
   uint16_t oneChunkPercentScaled100;   // this value represents how many percents one chunk is of the whole file, multiplied by 100
   uint8_t numberOfChunksNeeded;
+  bool waitForFeedback;
 } thermitProgress_t;
 
 
@@ -434,7 +435,7 @@ static bool progressGetFirstDirty(thermitPrv_t *prv, thermitProgress_t *progress
           /*found!*/
           *dirtyChunk = (byteIdx * 8) + bitIdx;
 
-          DEBUG_INFO(prv, "first dirty chunk = %d\r\n", *dirtyChunk);
+          //DEBUG_INFO(prv, "first dirty chunk = %d\r\n", *dirtyChunk);
 
           ret = true;
           break;  /*stop searching*/
@@ -1057,7 +1058,7 @@ static void handleDataMessage(thermitPrv_t *prv)
       }
       else
       {
-        DEBUG_INFO(prv, "THERMIT_FEEDBACK: FileID does not match, expected %d, got %d.\r\n", rxProgress->fileId, pkt->sndFileId);
+        DEBUG_INFO(prv, "RX: FileID does not match, expected %d, got %d.\r\n", rxProgress->fileId, pkt->sndFileId);
       }
     }
 
@@ -1068,21 +1069,33 @@ static void handleDataMessage(thermitPrv_t *prv)
         switch(pkt->recFeedback)
         {
           case THERMIT_FEEDBACK_FILE_IS_READY:
-            if(txProgress->running)
-            {
-              txProgress->running = false;
-              DEBUG_INFO(prv, "file sending finished successfully\r\n");
-              (void)tgt->fileClose(txProgress->fileHandle);
-            }
+            txProgress->running = false;
+            DEBUG_INFO(prv, "file sending finished successfully\r\n");
+            (void)tgt->fileClose(txProgress->fileHandle);
             break;
 
           default:
             prv->firstDirtyChunk = pkt->recFeedback;
+
+            if(txProgress->waitForFeedback)
+            {
+              txProgress->waitForFeedback = false;
+
+              if(prv->firstDirtyChunk < (txProgress->numberOfChunksNeeded))
+              {
+                txProgress->chunkNo = prv->firstDirtyChunk;
+                DEBUG_INFO(prv, "first round of file transfer was completed, now resending dirty chunk %d.\r\n", txProgress->chunkNo);
+              }
+            }
+
             break;
         }
       }
+      else
+      {
+        DEBUG_INFO(prv, "TX: FileID does not match, expected %d, got %d.\r\n", txProgress->fileId, pkt->recFileId);
+      }
     }
-
   }
 }
 
@@ -1234,47 +1247,47 @@ static int sendDataMessage(thermitPrv_t *prv)
         offset = THERMIT_FILE_OFFSET(txProgress->chunkNo, prv);
         length = THERMIT_CHUNK_LENGTH_TX(txProgress->chunkNo, prv);
 
-        pkt->fCode = THERMIT_FCODE_DATA_TRANSFER;
-        plPtr = framePrepare(prv);
-        plLen = 0;
-
-        DEBUG_INFO(prv, "sending chunk %d: offset=%d, length=%d\r\n", txProgress->chunkNo, offset, length);
-
-        bytesRead = tgt->fileRead(txProgress->fileHandle, offset, plPtr, length);
-        if(bytesRead >= 0)
+        if(!txProgress->waitForFeedback)
         {
-          if((uint16_t)bytesRead == length)
+          pkt->fCode = THERMIT_FCODE_DATA_TRANSFER;
+          plPtr = framePrepare(prv);
+          plLen = 0;
+
+          bytesRead = tgt->fileRead(txProgress->fileHandle, offset, plPtr, length);
+          if(bytesRead >= 0)
           {
-            plLen = length;
-            ret = frameFinalize(prv, plLen);
-
-            /*check if frame was correctly prepared, if yes, then advance to next chunk to be sent on the next round*/
-            if(ret == 0)
+            if((uint16_t)bytesRead == length)
             {
-              uint8_t nextChunk = THERMIT_ADVANCE_TO_NEXT(txProgress->chunkNo, THERMIT_CHUNK_COUNT_MAX);
+              plLen = length;
 
-              if(nextChunk < txProgress->numberOfChunksNeeded)
+              /*check if frame was correctly prepared, if yes, then advance to next chunk to be sent on the next round*/
+              if(frameFinalize(prv, plLen) == 0)
               {
-                txProgress->chunkNo = nextChunk;
-              }
-              else
-              {
-                if(prv->firstDirtyChunk < (txProgress->numberOfChunksNeeded))
+                if(txProgress->chunkNo < txProgress->numberOfChunksNeeded)
                 {
-                  txProgress->chunkNo = prv->firstDirtyChunk;
-                  DEBUG_INFO(prv, "first round of file transfer was completed, now resending dirty chunk %d.\r\n", txProgress->chunkNo);
+                  uint8_t nextChunk = txProgress->chunkNo+1;
+                  DEBUG_INFO(prv, "sending chunk %d: offset=%d, length=%d\r\n", txProgress->chunkNo, offset, length);
+                  txProgress->chunkNo = nextChunk;
+  
+                  if(nextChunk >= txProgress->numberOfChunksNeeded)
+                  {
+                    DEBUG_INFO(prv, "last chunk, will wait for feedback\r\n");
+                    txProgress->waitForFeedback = true;
+                  }
+
+                  ret = 0;
                 }
               }
+            }
+            else
+            {
+              DEBUG_ERR(prv, "file read failed: expected %d bytes, got %d.\r\n", length, readLen);
             }
           }
           else
           {
-            DEBUG_ERR(prv, "file read failed: expected %d bytes, got %d.\r\n", length, readLen);
+            DEBUG_ERR(prv, "file read failed: negative return value.\r\n");
           }
-        }
-        else
-        {
-          DEBUG_ERR(prv, "file read failed: negative return value.\r\n");
         }
         break;
 
