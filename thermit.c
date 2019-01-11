@@ -38,6 +38,9 @@ typedef struct
 #define THERMIT_PROGRESS_STATUS_LENGTH                DIVISION_ROUNDED_UP(THERMIT_CHUNK_COUNT_MAX, 8)   
 #define THERMIT_PROGRESS_STATUS_BYTE_INDEX(chunkNo)   ((chunkNo) / 8)
 #define THERMIT_PROGRESS_STATUS_BIT_INDEX(chunkNo)    ((chunkNo) % 8)
+
+#define THERMIT_ADVANCE_TO_NEXT(var, max) ((((var)) + 1) % (max))
+
 typedef struct
 {
   bool running;
@@ -1024,12 +1027,32 @@ static void handleDataMessage(thermitPrv_t *prv)
     {
       if(pkt->sndFileId == rxProgress->fileId)
       {
-        DEBUG_INFO(prv, "Chunk %d of file %d received.\r\n", pkt->sndChunkNo, pkt->sndFileId);
+        uint16_t offset = THERMIT_FILE_OFFSET(pkt->sndChunkNo, prv);
+        int16_t length = pkt->payloadLen;
 
-        if(tgt->fileWrite(rxProgress->fileId, THERMIT_FILE_OFFSET(pkt->sndChunkNo, prv), pkt->payloadPtr, pkt->payloadLen) == 0)
+        DEBUG_INFO(prv, "Chunk %d of file %d received.\r\n", pkt->sndChunkNo, pkt->sndFileId);
+        DEBUG_INFO(prv, "writing offset=%d, length=%d.\r\n", offset, length);
+
+        if(tgt->fileWrite(rxProgress->fileHandle, offset, pkt->payloadPtr, length) == 0)
         {
+          uint8_t dirtyChunk;
+
           progressSetChunkStatus(prv, rxProgress, pkt->sndChunkNo, true);
           debugDumpProgress(prv, rxProgress, "", "\r\n");
+
+          /*check if the file is ready*/
+          if(progressGetFirstDirty(prv, rxProgress, &dirtyChunk) == false)
+          {
+            thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
+            DEBUG_INFO(prv, "successfully received file, closing rx file transfer.\r\n");
+
+            tgt->fileClose(rxProgress->fileHandle);
+            rxProgress->running = false;
+          }
+        }
+        else
+        {
+          DEBUG_INFO(prv, "file writing failed.\r\n");
         }
       }
       else
@@ -1045,12 +1068,12 @@ static void handleDataMessage(thermitPrv_t *prv)
         switch(pkt->recFeedback)
         {
           case THERMIT_FEEDBACK_FILE_IS_READY:
-            txProgress->running = false;
-            DEBUG_INFO(prv, "file sending finished successfully\r\n");
-            (void)tgt->fileClose(txProgress->fileId);
-            break;
-
-          case THERMIT_FEEDBACK_NO_FILE_TRANSFER:
+            if(txProgress->running)
+            {
+              txProgress->running = false;
+              DEBUG_INFO(prv, "file sending finished successfully\r\n");
+              (void)tgt->fileClose(txProgress->fileHandle);
+            }
             break;
 
           default:
@@ -1134,7 +1157,7 @@ static outMsgClass_t updateOutGoingState(thermitPrv_t *prv)
             txProgress->fileId = prv->nextOutgoingFileId;
             txProgress->chunkNo = 0;
             strncpy(txProgress->fileName, fName, THERMIT_FILENAME_MAX);   /*todo optimize*/
-            prv->nextOutgoingFileId = ((prv->nextOutgoingFileId + 1) % THERMIT_FILEID_MAX);
+            prv->nextOutgoingFileId = THERMIT_ADVANCE_TO_NEXT(prv->nextOutgoingFileId, THERMIT_FILEID_MAX);
 
             whatToSend = THERMIT_OUT_FILE_INFO;
           }
@@ -1164,7 +1187,7 @@ static outMsgClass_t updateOutGoingState(thermitPrv_t *prv)
 
 uint8_t getFeedback(thermitPrv_t *prv)
 {
-  uint8_t fb = THERMIT_FEEDBACK_NO_FILE_TRANSFER;
+  uint8_t fb = THERMIT_FEEDBACK_FILE_IS_READY;
 
   if(prv)
   {
@@ -1175,10 +1198,6 @@ uint8_t getFeedback(thermitPrv_t *prv)
       if(progressGetFirstDirty(prv, rxProgress, &dirtyChunk))
       {
         fb = dirtyChunk;
-      }
-      else
-      {
-        fb = THERMIT_FEEDBACK_FILE_IS_READY;
       }
     }
   }
@@ -1203,8 +1222,7 @@ static int sendDataMessage(thermitPrv_t *prv)
     uint16_t length;
     uint16_t readLen;
     int bytesRead;
-    uint8_t nextChunk = txProgress->chunkNo + 1;
-    
+
     pkt->recFeedback = getFeedback(prv);
     pkt->recFileId = rxProgress->fileId;
     pkt->sndChunkNo = txProgress->chunkNo;
@@ -1222,19 +1240,6 @@ static int sendDataMessage(thermitPrv_t *prv)
 
         DEBUG_INFO(prv, "sending chunk %d: offset=%d, length=%d\r\n", txProgress->chunkNo, offset, length);
 
-        if(nextChunk < txProgress->numberOfChunksNeeded)
-        {
-          txProgress->chunkNo = nextChunk;
-        }
-        else
-        {
-          if(prv->firstDirtyChunk < THERMIT_FEEDBACK_NO_FILE_TRANSFER)
-          {
-            txProgress->chunkNo = prv->firstDirtyChunk;
-            DEBUG_INFO(prv, "first round of file transfer was completed, now resending dirty chunk %d.\r\n", txProgress->chunkNo);
-          }
-        }
-
         bytesRead = tgt->fileRead(txProgress->fileHandle, offset, plPtr, length);
         if(bytesRead >= 0)
         {
@@ -1242,6 +1247,25 @@ static int sendDataMessage(thermitPrv_t *prv)
           {
             plLen = length;
             ret = frameFinalize(prv, plLen);
+
+            /*check if frame was correctly prepared, if yes, then advance to next chunk to be sent on the next round*/
+            if(ret == 0)
+            {
+              uint8_t nextChunk = THERMIT_ADVANCE_TO_NEXT(txProgress->chunkNo, THERMIT_CHUNK_COUNT_MAX);
+
+              if(nextChunk < txProgress->numberOfChunksNeeded)
+              {
+                txProgress->chunkNo = nextChunk;
+              }
+              else
+              {
+                if(prv->firstDirtyChunk < (txProgress->numberOfChunksNeeded))
+                {
+                  txProgress->chunkNo = prv->firstDirtyChunk;
+                  DEBUG_INFO(prv, "first round of file transfer was completed, now resending dirty chunk %d.\r\n", txProgress->chunkNo);
+                }
+              }
+            }
           }
           else
           {
@@ -1352,20 +1376,33 @@ static int waitForDataMessage(thermitPrv_t *prv)
 
       if(parseFileInfoMessage(prv, fName, THERMIT_FILENAME_MAX, &fileSize) == 0)
       {
-        ret = progressInitialize(prv, rxProgress, fileSize);
+        thermitTargetAdaptationInterface_t *tgt = &(prv->targetIf);
+        thermitIoSlot_t fileHandle = tgt->fileOpen(rxProgress->fileName, THERMIT_WRITE, &fileSize);
 
-        rxProgress->running = true;
-        strncpy(rxProgress->fileName, fName, THERMIT_FILENAME_MAX);
+        if(fileHandle >= 0)
+        {
+          ret = progressInitialize(prv, rxProgress, fileSize);
+
+          rxProgress->running = true;
+          rxProgress->fileId = pkt->sndFileId;
+          strncpy(rxProgress->fileName, fName, THERMIT_FILENAME_MAX);
+        }
+        else
+        {
+          DEBUG_ERR(prv, "opening new rx file failed\r\n");
+        }
       }
       else
       {
         /*illegal format in incoming file info frame, send "write terminated forcefully" frame.*/
+        DEBUG_ERR(prv, "file info parsing failed, sending error frame\r\n");
         prv->sendWTF = true;
       }
     }
     else
     {
       /*cannot accept new file info during transfer, send "write terminated forcefully" frame.*/
+      DEBUG_ERR(prv, "remote tried to start new file during transfer, sending error frame\r\n");
       prv->sendWTF = true;
     }
     break;

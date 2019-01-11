@@ -556,6 +556,8 @@ static thermitIoSlot_t ioFileOpen(uint8_t *fileName, thermitIoMode_t mode, uint1
     }
   }
 
+  dbgPrintf("***fileOpen(%s,%s) -> return=%d\r\n", fileName, mode==THERMIT_READ?"read":"write", ret);
+
   return ret;
 }
 
@@ -637,6 +639,8 @@ static int ioFileClose(thermitIoSlot_t slot)
     ret = 0;
 #endif
   }
+
+  dbgPrintf("***fileClose(%d) -> return=%d\r\n", slot, ret);
 
   return ret;
 }
